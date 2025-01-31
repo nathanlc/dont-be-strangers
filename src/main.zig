@@ -1,7 +1,12 @@
 const std = @import("std");
+const cli = @import("cli.zig");
+const web = @import("web.zig");
 
-const db_path = "resources/db.csv";
-const read_flags = std.fs.File.OpenFlags{ .mode = std.fs.File.OpenMode.read_only };
+const DB_PATH = "resources/db.csv";
+const READ_FLAGS = std.fs.File.OpenFlags{ .mode = std.fs.File.OpenMode.read_only };
+const DEFAULT_URL_LENGTH = 2048;
+const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_PORT = 3000;
 
 fn parsedOptionalValue(parsed_result: anyerror!?[]u8) ?[]u8 {
     if (parsed_result) |maybe_value| {
@@ -155,21 +160,64 @@ const ContactList = struct {
     }
 };
 
-pub fn main() !void {
-    std.debug.print("Hello keep-in-touch-backend!\n\n", .{});
+pub fn runHelp() !void {
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print("keep-in-touch-backend help blablabla\n", .{});
+}
 
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = general_purpose_allocator.allocator();
-
-    const db_file = try std.fs.cwd().openFile(db_path, read_flags);
+pub fn runListContacts(allocator: std.mem.Allocator) !void {
+    const db_file = try std.fs.cwd().openFile(DB_PATH, READ_FLAGS);
     defer db_file.close();
 
-    var contact_list = try ContactList.fromCsvFile(gpa, db_file.reader(), true);
+    var contact_list = try ContactList.fromCsvFile(allocator, db_file.reader(), true);
     defer contact_list.deinit();
 
     const stdout = std.io.getStdOut().writer();
     try contact_list.format("{s}", .{}, stdout);
     try stdout.print("\n", .{});
+}
+
+pub fn runServer() !void {
+    const address = try std.net.Address.resolveIp(DEFAULT_HOST, DEFAULT_PORT);
+    var net_server = try address.listen(.{ .reuse_address = true });
+    defer net_server.deinit();
+
+    var server_buffer: [DEFAULT_URL_LENGTH]u8 = undefined;
+
+    while (true) {
+        const connection = try net_server.accept();
+        defer connection.stream.close();
+
+        var server = std.http.Server.init(connection, &server_buffer);
+
+        var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+        const allocator = general_purpose_allocator.allocator();
+        // const allocator = std.heap.page_allocator
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        var request = try web.Request.init(try server.receiveHead(), arena.allocator());
+
+        _ = try request.respond();
+    }
+}
+
+pub fn main() !void {
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = general_purpose_allocator.allocator();
+
+    var arg_iterator = try std.process.argsWithAllocator(allocator);
+    defer arg_iterator.deinit();
+
+    const action = cli.parseArgs(&arg_iterator) catch {
+        try runHelp();
+        std.process.exit(1);
+    };
+
+    switch (action) {
+        .help => try runHelp(),
+        .list => try runListContacts(allocator),
+        .server => try runServer(),
+    }
 }
 
 test "Contact.fromCsvLine with some contacted_at" {
@@ -206,7 +254,7 @@ test "ContactList.fromCsvFile" {
     const expect = std.testing.expect;
     const allocator = std.testing.allocator;
 
-    const test_db = try std.fs.cwd().openFile("resources/test_db.csv", read_flags);
+    const test_db = try std.fs.cwd().openFile("resources/test_db.csv", READ_FLAGS);
     defer test_db.close();
 
     var contact_list = try ContactList.fromCsvFile(allocator, test_db.reader(), true);
