@@ -1,4 +1,8 @@
 const std = @import("std");
+const model = @import("model.zig");
+
+const READ_FLAGS = std.fs.File.OpenFlags{ .mode = std.fs.File.OpenMode.read_only };
+const DB_PATH = "resources/db.csv";
 
 const Action = enum {
     help,
@@ -40,6 +44,23 @@ pub fn parseArgs(arg_iterator: anytype) Error!Action {
     }
 
     return error.MissingAction;
+}
+
+pub fn runHelp() !void {
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print("keep-in-touch-backend help blablabla\n", .{});
+}
+
+pub fn runListContacts(allocator: std.mem.Allocator) !void {
+    const db_file = try std.fs.cwd().openFile(DB_PATH, READ_FLAGS);
+    defer db_file.close();
+
+    var contact_list = try model.ContactList.fromCsvFile(allocator, db_file.reader(), true);
+    defer contact_list.deinit();
+
+    const stdout = std.io.getStdOut().writer();
+    try contact_list.format("{s}", .{}, stdout);
+    try stdout.print("\n", .{});
 }
 
 test "parseArgs with correct action" {

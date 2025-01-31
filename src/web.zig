@@ -1,6 +1,9 @@
 const std = @import("std");
 
 const PUBLIC_PATH = "public/";
+const DEFAULT_URL_LENGTH = 2048;
+const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_PORT = 3000;
 
 fn httpMethodToString(method: std.http.Method) []const u8 {
     const Method = std.http.Method;
@@ -22,6 +25,7 @@ fn httpMethodToString(method: std.http.Method) []const u8 {
 const Response = struct {
     body: []const u8,
     content_type: Mime,
+    status: std.http.Status = .ok,
 };
 
 const Endpoint = struct {
@@ -153,14 +157,30 @@ fn respondServeFile(request: *Request) !Response {
     };
 }
 
-fn testResponse(comptime method: []const u8, comptime path: []const u8, expected_body: []const u8, expected_mime: Mime) !void {
+fn respond404(_: *Request) !Response {
+    return Response{
+        .body = "404 NOT FOUND",
+        .content_type = Mime.text_plain,
+        .status = .not_found,
+    };
+}
+
+fn respond500(_: *Request) !Response {
+    return Response{
+        .body = "500 WHOOPSIE",
+        .content_type = Mime.text_plain,
+        .status = .internal_server_error,
+    };
+}
+
+fn testResponse(comptime method: []const u8, comptime path: []const u8, expected_body: []const u8, expected_mime: Mime, expected_status: std.http.Status) !void {
     const allocator = std.testing.allocator;
 
     const ip = "127.0.0.1";
     const port = 3010;
 
     const server_thread = try std.Thread.spawn(.{}, (struct {
-        fn apply(e_body: []const u8, e_mime: Mime) !void {
+        fn apply(e_body: []const u8, e_mime: Mime, e_status: std.http.Status) !void {
             const address = try std.net.Address.resolveIp(ip, port);
             var net_server = try address.listen(.{ .reuse_address = true });
             defer net_server.deinit();
@@ -177,8 +197,9 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
 
             try std.testing.expectEqualStrings(e_body, response.body);
             try std.testing.expectEqual(e_mime, response.content_type);
+            try std.testing.expectEqual(e_status, response.status);
         }
-    }).apply, .{ expected_body, expected_mime });
+    }).apply, .{ expected_body, expected_mime, expected_status });
 
     const request_bytes =
         method ++ " " ++ path ++ " HTTP/1.1\r\n" ++
@@ -192,26 +213,16 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
     server_thread.join();
 }
 
-test "respondServeFile with request /test.txt" {
-    try testResponse("GET", "/test.txt", "test\n", Mime.text_plain);
+test respondServeFile {
+    try testResponse("GET", "/test.txt", "test\n", Mime.text_plain, .ok);
 }
 
 test respondHealth {
-    try testResponse("GET", "/health", "Hello!", Mime.text_plain);
+    try testResponse("GET", "/health", "Hello!", Mime.text_plain, .ok);
 }
 
-fn respond404(_: *Request) !Response {
-    return Response{
-        .body = "404 NOT FOUND",
-        .content_type = Mime.text_plain,
-    };
-}
-
-fn respond500(_: *Request) !Response {
-    return Response{
-        .body = "500 WHOOPSIE",
-        .content_type = Mime.text_plain,
-    };
+test respond404 {
+    try testResponse("GET", "/not_existing_path", "404 NOT FOUND", Mime.text_plain, .not_found);
 }
 
 const endpoint404 = Endpoint{
@@ -349,7 +360,7 @@ pub const Request = struct {
     }
 
     fn logRequest(self: *Request) !void {
-        std.log.info("{s}: {s}\n  Path:   {s}\n  Query: {s}\n", .{
+        std.log.info("{s}: {s}\n  Path:   {s}\n  Query: {s}", .{
             self.getMethodString(),
             self.url,
             try self.uri.path.toRawMaybeAlloc(self.arena),
@@ -367,9 +378,14 @@ pub const Request = struct {
         };
         const response = try matching_endpoint.respond(self);
         // TODO: Look into respondStreaming if need for manipulating the response arises.
+        std.log.info("=> {d} {s}\n", .{
+            @intFromEnum(response.status),
+            if (response.status.phrase()) |phrase| phrase else "",
+        });
 
         const content_type = std.http.Header{ .name = "Content-Type", .value = response.content_type.toString() };
         try self.inner.respond(response.body, .{
+            .status = response.status,
             .extra_headers = &.{
                 content_type,
                 .{ .name = "Connection", .value = "Close" },
@@ -379,3 +395,27 @@ pub const Request = struct {
         return response;
     }
 };
+
+pub fn runServer() !void {
+    const address = try std.net.Address.resolveIp(DEFAULT_HOST, DEFAULT_PORT);
+    var net_server = try address.listen(.{ .reuse_address = true });
+    defer net_server.deinit();
+
+    var server_buffer: [DEFAULT_URL_LENGTH]u8 = undefined;
+
+    while (true) {
+        const connection = try net_server.accept();
+        defer connection.stream.close();
+
+        var server = std.http.Server.init(connection, &server_buffer);
+
+        var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+        const allocator = general_purpose_allocator.allocator();
+        // const allocator = std.heap.page_allocator
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        var request = try Request.init(try server.receiveHead(), arena.allocator());
+
+        _ = try request.respond();
+    }
+}
