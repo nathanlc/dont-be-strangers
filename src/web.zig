@@ -1,31 +1,109 @@
 const std = @import("std");
+const model = @import("model.zig");
 
 const PUBLIC_PATH = "public/";
 const DEFAULT_URL_LENGTH = 2048;
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3000;
 
-fn httpMethodToString(method: std.http.Method) []const u8 {
-    const Method = std.http.Method;
+const logger = std.log.scoped(.web);
 
-    return switch (method) {
-        Method.GET => "GET",
-        Method.HEAD => "HEAD",
-        Method.POST => "POST",
-        Method.PUT => "PUT",
-        Method.DELETE => "DELETE",
-        Method.CONNECT => "CONNECT",
-        Method.OPTIONS => "OPTIONS",
-        Method.TRACE => "TRACE",
-        Method.PATCH => "PATCH",
-        else => "?",
-    };
-}
+const Query = struct {
+    allocator: std.mem.Allocator,
+    str: []const u8,
+    map: std.StringHashMap([]const u8),
+
+    fn fill_map(allocator: std.mem.Allocator, map: *std.StringHashMap([]const u8), query_str: []const u8) !void {
+        errdefer {
+            var entry_iter = map.iterator();
+            while (entry_iter.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            map.deinit();
+        }
+
+        var part_iter = std.mem.splitScalar(u8, query_str, '&');
+        while (part_iter.next()) |item| {
+            if (std.mem.eql(u8, "", item)) {
+                continue;
+            }
+            var item_itr = std.mem.splitScalar(u8, item, '=');
+            // TODO: key and value (especially) should be url decoded.
+            const item_key = item_itr.next();
+            const item_value = item_itr.next();
+            if (item_key != null and item_value != null) {
+                const key = try allocator.alloc(u8, item_key.?.len);
+                @memcpy(key, item_key.?);
+                const value = try allocator.alloc(u8, item_value.?.len);
+                @memcpy(value, item_value.?);
+                try map.put(key, value);
+            } else {
+                logger.warn("Query item incomplete: {s}", .{item});
+            }
+        }
+    }
+
+    pub fn init(allocator: std.mem.Allocator, query_str: []const u8) !Query {
+        var map = std.StringHashMap([]const u8).init(allocator);
+        try fill_map(allocator, &map, query_str);
+
+        return .{
+            .allocator = allocator,
+            .str = query_str,
+            .map = map,
+        };
+    }
+
+    pub fn get(self: *Query, key: []const u8) ?[]const u8 {
+        return self.map.get(key);
+    }
+
+    pub fn deinit(self: *Query) void {
+        var entry_iter = self.map.iterator();
+        while (entry_iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.map.deinit();
+    }
+};
+
+const BodyTag = enum {
+    comp,
+    alloc,
+};
+
+const Body = union(BodyTag) {
+    comp: []const u8,
+    alloc: []const u8,
+
+    pub fn bodyStr(self: Body) []const u8 {
+        return switch (self) {
+            .comp, .alloc => |str| str,
+        };
+    }
+
+    pub fn free(self: Body, alloc: std.mem.Allocator) void {
+        switch (self) {
+            .comp => |_| {},
+            .alloc => |body| alloc.free(body),
+        }
+    }
+};
 
 const Response = struct {
-    body: []const u8,
+    body: Body,
     content_type: Mime,
     status: std.http.Status = .ok,
+
+    pub fn log(self: *const Response) void {
+        // Include \n as it should be the last thing logged for a request.
+        logger.info("=> {d} {s}\n", .{
+            @intFromEnum(self.status),
+            if (self.status.phrase()) |phrase| phrase else "",
+        });
+    }
 };
 
 const Endpoint = struct {
@@ -43,14 +121,39 @@ const Endpoint = struct {
 
 fn respondHealth(_: *Request) !Response {
     return Response{
-        .body = "Hello!",
+        .body = Body{ .comp = "Hello!" },
         .content_type = Mime.text_plain,
     };
 }
 
-fn respondContacts(_: *Request) !Response {
+fn respondContacts(request: *Request) !Response {
+    var query = try request.getQuery();
+    defer query.deinit();
+
+    const id = query.get("id") orelse {
+        return Response{
+            .body = Body{ .comp = "Missing expected query param `id`" },
+            .content_type = Mime.text_plain,
+            .status = .bad_request,
+        };
+    };
+
+    var contact_list = model.ContactList.fromCsvFile(request.arena, id, true) catch |err| {
+        return switch (err) {
+            error.ContactListNotFound => respond404(request),
+            else => err,
+        };
+    };
+    defer contact_list.deinit();
+
+    const body = try std.fmt.allocPrint(
+        request.arena,
+        "ID: {s}\n\n{s}",
+        .{ id, contact_list },
+    );
+
     return Response{
-        .body = "Contact list",
+        .body = Body{ .alloc = body },
         .content_type = Mime.text_plain,
     };
 }
@@ -91,7 +194,7 @@ const Mime = enum {
             return Mime.image_png;
         }
 
-        std.log.warn("Unexpected extension: {s}\n  for file_name: {s}\nReturning text/plain", .{ extension, file_name });
+        logger.warn("Unexpected extension: {s}\n  for file_name: {s}\nReturning text/plain", .{ extension, file_name });
         return error.MimeNotFound;
     }
 
@@ -119,7 +222,7 @@ fn readPublicFile(path: []const u8) ![]u8 {
     };
     var file = try public_dir.openFile(file_path, .{});
     defer file.close();
-    // TODO: Probably need to stream that...
+    // TODO: Probably should stream that...
     var buffer: [32768]u8 = undefined;
     const count_read = try file.readAll(&buffer);
 
@@ -144,7 +247,7 @@ fn respondServeFile(request: *Request) !Response {
     const body: []const u8 = readPublicFile(path) catch |err| {
         switch (err) {
             error.FileNotFound => {
-                std.log.warn("Static file not found: {!}", .{err});
+                logger.warn("Static file not found: {!}", .{err});
                 return respond404(request);
             },
             else => return err,
@@ -152,14 +255,14 @@ fn respondServeFile(request: *Request) !Response {
     };
 
     return Response{
-        .body = body,
+        .body = Body{ .comp = body },
         .content_type = Mime.fromString(path) catch Mime.text_plain,
     };
 }
 
 fn respond404(_: *Request) !Response {
     return Response{
-        .body = "404 NOT FOUND",
+        .body = Body{ .comp = "404 NOT FOUND" },
         .content_type = Mime.text_plain,
         .status = .not_found,
     };
@@ -167,7 +270,7 @@ fn respond404(_: *Request) !Response {
 
 fn respond500(_: *Request) !Response {
     return Response{
-        .body = "500 WHOOPSIE",
+        .body = Body{ .comp = "500 WHOOPSIE" },
         .content_type = Mime.text_plain,
         .status = .internal_server_error,
     };
@@ -195,7 +298,7 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
 
             const response = try request.respond();
 
-            try std.testing.expectEqualStrings(e_body, response.body);
+            try std.testing.expectEqualStrings(e_body, response.body.bodyStr());
             try std.testing.expectEqual(e_mime, response.content_type);
             try std.testing.expectEqual(e_status, response.status);
         }
@@ -347,20 +450,39 @@ pub const Request = struct {
         self.arena.free(self.url);
     }
 
-    fn getPath(self: *Request) []const u8 {
-        return self.uri.path.percent_encoded;
-    }
-
     fn getMethod(self: *Request) std.http.Method {
         return self.inner.head.method;
     }
 
     fn getMethodString(self: *Request) []const u8 {
-        return httpMethodToString(self.getMethod());
+        const Method = std.http.Method;
+
+        return switch (self.inner.head.method) {
+            Method.GET => "GET",
+            Method.HEAD => "HEAD",
+            Method.POST => "POST",
+            Method.PUT => "PUT",
+            Method.DELETE => "DELETE",
+            Method.CONNECT => "CONNECT",
+            Method.OPTIONS => "OPTIONS",
+            Method.TRACE => "TRACE",
+            Method.PATCH => "PATCH",
+            else => "?",
+        };
     }
 
-    fn logRequest(self: *Request) !void {
-        std.log.info("{s}: {s}\n  Path:   {s}\n  Query: {s}", .{
+    fn getPath(self: *Request) []const u8 {
+        return self.uri.path.percent_encoded;
+    }
+
+    fn getQuery(self: *Request) !Query {
+        const query_str = if (self.uri.query) |query| query.percent_encoded else "";
+
+        return Query.init(self.arena, query_str);
+    }
+
+    fn log(self: *Request) !void {
+        logger.info("{s}: {s}\n  Path:   {s}\n  Query: {s}", .{
             self.getMethodString(),
             self.url,
             try self.uri.path.toRawMaybeAlloc(self.arena),
@@ -368,23 +490,21 @@ pub const Request = struct {
         });
     }
 
-    // TODO: Returning Response for now is to make testing of responses easier. It's a hack.
     pub fn respond(self: *Request) !Response {
-        // TODO: errdefer respond with a 500 or something.
-        try self.logRequest();
+        try self.log();
+
         const matching_endpoint = route(self.arena, self.uri.path.percent_encoded, self.getMethod()) catch |err| blk: {
-            std.log.err("Error while routing: {!}\n", .{err});
+            logger.err("Error while routing: {!}\n", .{err});
             break :blk endpoint500;
         };
         const response = try matching_endpoint.respond(self);
+        defer response.body.free(self.arena);
         // TODO: Look into respondStreaming if need for manipulating the response arises.
-        std.log.info("=> {d} {s}\n", .{
-            @intFromEnum(response.status),
-            if (response.status.phrase()) |phrase| phrase else "",
-        });
+        response.log();
 
         const content_type = std.http.Header{ .name = "Content-Type", .value = response.content_type.toString() };
-        try self.inner.respond(response.body, .{
+
+        try self.inner.respond(response.body.bodyStr(), .{
             .status = response.status,
             .extra_headers = &.{
                 content_type,
@@ -392,6 +512,7 @@ pub const Request = struct {
             },
         });
 
+        // TODO: Returning Response for now is to make testing of responses easier. It's a hack.
         return response;
     }
 };

@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const DB_DIR = "resource/db";
 const READ_FLAGS = std.fs.File.OpenFlags{ .mode = std.fs.File.OpenMode.read_only };
 
 fn parsedOptionalValue(parsed_result: anyerror!?[]u8) ?[]u8 {
@@ -19,15 +20,15 @@ fn parsedValue(parsed_result: anyerror!?[]u8) []u8 {
 }
 
 pub const Contact = struct {
-    allocator: std.mem.Allocator,
+    alloc: std.mem.Allocator,
     created_at: u32,
     full_name: []u8,
     frequency_days: u16,
     contacted_at: ?u32,
 
-    pub fn init(allocator: std.mem.Allocator) Contact {
+    pub fn init(alloc: std.mem.Allocator) Contact {
         return .{
-            .allocator = allocator,
+            .alloc = alloc,
             .created_at = undefined,
             .full_name = undefined,
             .frequency_days = undefined,
@@ -35,7 +36,7 @@ pub const Contact = struct {
         };
     }
 
-    pub fn fromCsvLine(allocator: std.mem.Allocator, reader: anytype) !Contact {
+    pub fn fromCsvLine(alloc: std.mem.Allocator, reader: anytype) !Contact {
         var buf: [1024]u8 = undefined;
         // If parsing created_at fails or is null, there is no contact to create.
         // E.g. end of file was reached or the line was incorrectly formatted.
@@ -47,13 +48,13 @@ pub const Contact = struct {
         }
         const created_at = try std.fmt.parseInt(u32, maybe_created_at.?, 10);
 
-        var contact = Contact.init(allocator);
+        var contact = Contact.init(alloc);
 
         contact.created_at = created_at;
 
         const full_name_value = parsedValue(reader.readUntilDelimiterOrEof(&buf, ','));
-        const full_name = try allocator.alloc(u8, full_name_value.len);
-        errdefer allocator.free(full_name);
+        const full_name = try alloc.alloc(u8, full_name_value.len);
+        errdefer alloc.free(full_name);
         @memcpy(full_name, full_name_value);
         contact.full_name = full_name;
 
@@ -74,7 +75,7 @@ pub const Contact = struct {
     }
 
     pub fn deinit(self: Contact) void {
-        self.allocator.free(self.full_name);
+        self.alloc.free(self.full_name);
     }
 
     pub fn format(
@@ -104,14 +105,14 @@ pub const Contact = struct {
 pub const ContactList = struct {
     contacts: std.ArrayList(Contact),
 
-    pub fn init(allocator: std.mem.Allocator) ContactList {
+    pub fn init(alloc: std.mem.Allocator) ContactList {
         return .{
-            .contacts = std.ArrayList(Contact).init(allocator),
+            .contacts = std.ArrayList(Contact).init(alloc),
         };
     }
 
-    pub fn fromCsvFile(allocator: std.mem.Allocator, reader: anytype, has_headers: bool) !ContactList {
-        var contact_list = ContactList.init(allocator);
+    pub fn fromCsvReader(alloc: std.mem.Allocator, reader: anytype, has_headers: bool) !ContactList {
+        var contact_list = ContactList.init(alloc);
         errdefer contact_list.deinit();
 
         // Skip headers
@@ -119,7 +120,7 @@ pub const ContactList = struct {
             try reader.skipUntilDelimiterOrEof('\n');
         }
         while (true) {
-            var contact = Contact.fromCsvLine(allocator, reader) catch {
+            var contact = Contact.fromCsvLine(alloc, reader) catch {
                 break;
             };
             errdefer contact.deinit();
@@ -127,6 +128,25 @@ pub const ContactList = struct {
         }
 
         return contact_list;
+    }
+
+    pub fn fromCsvFile(alloc: std.mem.Allocator, id: []const u8, has_headers: bool) !ContactList {
+        const db_path = try std.fmt.allocPrint(
+            alloc,
+            "{s}/{s}.csv",
+            .{ DB_DIR, id },
+        );
+        defer alloc.free(db_path);
+
+        const db_file = std.fs.cwd().openFile(db_path, READ_FLAGS) catch |err| {
+            return switch (err) {
+                error.FileNotFound => error.ContactListNotFound,
+                else => err,
+            };
+        };
+        defer db_file.close();
+
+        return try ContactList.fromCsvReader(alloc, db_file.reader(), has_headers);
     }
 
     pub fn deinit(self: ContactList) void {
@@ -184,14 +204,14 @@ test "Contact.fromCsvLine with contacted_at null" {
     try expect(contact.contacted_at == null);
 }
 
-test "ContactList.fromCsvFile" {
+test "ContactList.fromCsvReader" {
     const expect = std.testing.expect;
-    const allocator = std.testing.allocator;
+    const alloc = std.testing.allocator;
 
-    const test_db = try std.fs.cwd().openFile("resources/test_db.csv", READ_FLAGS);
+    const test_db = try std.fs.cwd().openFile("resource/db/test_db.csv", READ_FLAGS);
     defer test_db.close();
 
-    var contact_list = try ContactList.fromCsvFile(allocator, test_db.reader(), true);
+    var contact_list = try ContactList.fromCsvReader(alloc, test_db.reader(), true);
     defer contact_list.deinit();
 
     const first_contact = contact_list.contacts.items[0];
