@@ -16,12 +16,7 @@ pub fn main() !void {
         try cli.runHelp();
         std.process.exit(1);
     };
-    defer {
-        switch (action) {
-            .contacts => |options| allocator.free(options.id),
-            else => {},
-        }
-    }
+    defer action.deinit();
 
     switch (action) {
         .help => try cli.runHelp(),
