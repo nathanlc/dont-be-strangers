@@ -11,17 +11,12 @@ pub fn main() !void {
     var arg_iterator = try std.process.argsWithAllocator(allocator);
     defer arg_iterator.deinit();
 
-    const action = cli.parseArgs(allocator, &arg_iterator) catch |err| {
+    const action = cli.Action.fromArgs(allocator, &arg_iterator) catch |err| {
         std.log.err("Error while parsing args: {!}", .{err});
         try cli.runHelp();
         std.process.exit(1);
     };
-    defer {
-        switch (action) {
-            .contacts => |options| allocator.free(options.id),
-            else => {},
-        }
-    }
+    defer action.deinit();
 
     switch (action) {
         .help => try cli.runHelp(),
