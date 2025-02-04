@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zig
+        run: apk add zig
+      - name: Test
+        run: zig test src/tests.zig
+      - name: Build
+        run: zig build
