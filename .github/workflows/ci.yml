@@ -10,8 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: alpine
-      # ports:
-      #   - 3010:3010
     steps:
       - uses: actions/checkout@v4
       - name: Install zig
