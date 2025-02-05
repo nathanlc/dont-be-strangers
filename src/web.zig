@@ -309,6 +309,7 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
         "Accept: */*\r\n" ++
         "\r\n";
 
+    // Pause for 0.1s otherwise connection is refused in github actions...
     std.posix.nanosleep(0, 100_000_000);
 
     const stream = try std.net.tcpConnectToHost(allocator, ip, port);
@@ -318,29 +319,17 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
     server_thread.join();
 }
 
-test "all responds in one test" {
-    // {
+test respondHealth {
     try testResponse("GET", "/health", "Hello!", Mime.text_plain, .ok);
-    // }
-    // {
-    //     try testResponse("GET", "/test.txt", "test\n", Mime.text_plain, .ok);
-    // }
-    // {
-    //     try testResponse("GET", "/not_existing_path", "404 NOT FOUND", Mime.text_plain, .not_found);
-    // }
 }
 
-// test respondServeFile {
-//     try testResponse("GET", "/test.txt", "test\n", Mime.text_plain, .ok);
-// }
+test respondServeFile {
+    try testResponse("GET", "/test.txt", "test\n", Mime.text_plain, .ok);
+}
 
-// test respondHealth {
-//     try testResponse("GET", "/health", "Hello!", Mime.text_plain, .ok);
-// }
-
-// test respond404 {
-//     try testResponse("GET", "/not_existing_path", "404 NOT FOUND", Mime.text_plain, .not_found);
-// }
+test respond404 {
+    try testResponse("GET", "/not_existing_path", "404 NOT FOUND", Mime.text_plain, .not_found);
+}
 
 const endpoint404 = Endpoint{
     // Path and method don't matter in this case.
