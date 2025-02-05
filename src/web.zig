@@ -309,6 +309,9 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
         "Accept: */*\r\n" ++
         "\r\n";
 
+    // Pause for 0.001s otherwise connection is refused in github actions...
+    std.posix.nanosleep(0, 1_000_000);
+
     const stream = try std.net.tcpConnectToHost(allocator, ip, port);
     defer stream.close();
     _ = try stream.writeAll(request_bytes[0..]);
@@ -316,12 +319,12 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
     server_thread.join();
 }
 
-test respondServeFile {
-    try testResponse("GET", "/test.txt", "test\n", Mime.text_plain, .ok);
-}
-
 test respondHealth {
     try testResponse("GET", "/health", "Hello!", Mime.text_plain, .ok);
+}
+
+test respondServeFile {
+    try testResponse("GET", "/test.txt", "test\n", Mime.text_plain, .ok);
 }
 
 test respond404 {
