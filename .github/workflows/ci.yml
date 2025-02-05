@@ -19,4 +19,4 @@ jobs:
       - name: Build
         run: zig build
       - name: Test
-        run: zig test src/tests.zig
+        run: zig build test
