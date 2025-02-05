@@ -309,6 +309,8 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
         "Accept: */*\r\n" ++
         "\r\n";
 
+    std.Thread.sleep(10000);
+
     const stream = try std.net.tcpConnectToHost(allocator, ip, port);
     defer stream.close();
     _ = try stream.writeAll(request_bytes[0..]);
