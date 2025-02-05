@@ -279,7 +279,7 @@ fn respond500(_: *Request) !Response {
 fn testResponse(comptime method: []const u8, comptime path: []const u8, expected_body: []const u8, expected_mime: Mime, expected_status: std.http.Status) !void {
     const allocator = std.testing.allocator;
 
-    const ip = "127.0.0.1";
+    const ip = "0.0.0.0";
     const port = 3010;
 
     const server_thread = try std.Thread.spawn(.{}, (struct {
