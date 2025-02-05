@@ -309,7 +309,7 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
         "Accept: */*\r\n" ++
         "\r\n";
 
-    std.posix.nanosleep(1, 0);
+    std.posix.nanosleep(0, 100_000_000);
 
     const stream = try std.net.tcpConnectToHost(allocator, ip, port);
     defer stream.close();
