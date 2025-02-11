@@ -16,5 +16,14 @@ jobs:
         run: apk add zig
       - name: Build
         run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
+
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zig
+        run: apk add zig
       - name: Test
         run: zig test src/test.zig
