@@ -6,7 +6,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  setup:
+  build:
     runs-on: ubuntu-latest
     container:
       image: alpine
@@ -14,13 +14,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install zig
         run: apk add zig
-
-  build:
-    runs-on: ubuntu-latest
-    container:
-      image: alpine
-    needs: setup
-    steps:
       - name: Build
         run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
       - name: Test
@@ -30,9 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: alpine
-    needs: setup
     steps:
-      - name: Test
+      - uses: actions/checkout@v4
+      - name: Install zig
+        run: apk add zig
+      - name: Build
         run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
       - name: Test
         run: zig test src/test.zig
