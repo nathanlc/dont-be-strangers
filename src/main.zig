@@ -20,6 +20,7 @@ pub fn main() !void {
 
     switch (action) {
         .help => try cli.runHelp(),
+        .scratch => try web.runScratch(allocator),
         .contacts => |options| try cli.runContactsList(allocator, options.id),
         .server => try web.runServer(),
     }

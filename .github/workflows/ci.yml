@@ -15,6 +15,6 @@ jobs:
       - name: Install zig
         run: apk add zig
       - name: Build
-        run: zig build
+        run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
       - name: Test
-        run: zig test src/tests.zig
+        run: zig test src/test.zig

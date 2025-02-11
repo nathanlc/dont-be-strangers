@@ -1,4 +1,8 @@
+.DS_Store
+.env
+.envrc
+src/scratch.zig
 .zig-cache/
 zig-out/
-.DS_Store
-src/scratch.zig
+main
+main.o

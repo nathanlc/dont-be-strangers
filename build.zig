@@ -37,6 +37,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const github_client_id = b.option([]const u8, "github-client-id", "Github app registered client ID");
+    const github_client_secret = b.option([]const u8, "github-client-secret", "Github app registered client secret");
+
+    const options = b.addOptions();
+    options.addOption(?[]const u8, "github_client_id", github_client_id);
+    options.addOption(?[]const u8, "github_client_secret", github_client_secret);
+
+    exe.root_module.addOptions("config", options);
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
@@ -85,7 +94,7 @@ pub fn build(b: *std.Build) void {
 
         const exe_unit_tests = b.addTest(.{
             // .root_source_file = b.path("src/main.zig"),
-            .root_source_file = b.path("src/tests.zig"),
+            .root_source_file = b.path("src/test.zig"),
             .target = target,
             .optimize = optimize,
         });

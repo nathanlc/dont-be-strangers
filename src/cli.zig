@@ -14,6 +14,7 @@ fn logErr(comptime fmt: []const u8, args: anytype) void {
 
 const ActionTag = enum {
     help,
+    scratch,
     contacts,
     server,
     // pub fn helpMessage(self: Action) []const u8 {
@@ -52,6 +53,7 @@ const ContactsOptions = struct {
 
 pub const Action = union(ActionTag) {
     help: void,
+    scratch: void,
     contacts: ContactsOptions,
     server: void,
 
@@ -76,6 +78,7 @@ pub const Action = union(ActionTag) {
 
         return switch (action_tag) {
             .help => ActionTag.help,
+            .scratch => ActionTag.scratch,
             .server => ActionTag.server,
             .contacts => try Action.fromContactsArgs(alloc, &arg_iterator),
         };

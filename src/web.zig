@@ -1,5 +1,7 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const model = @import("model.zig");
+const github = @import("github.zig");
 
 const PUBLIC_PATH = "public/";
 const DEFAULT_URL_LENGTH = 2048;
@@ -7,6 +9,16 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3000;
 
 const logger = std.log.scoped(.web);
+
+fn logErr(comptime fmt: []const u8, args: anytype) void {
+    if (!builtin.is_test) {
+        logger.err(fmt, args);
+    } else {
+        logger.info(fmt, args);
+    }
+}
+
+pub fn runScratch(_: std.mem.Allocator) !void {}
 
 const Query = struct {
     allocator: std.mem.Allocator,
@@ -126,21 +138,90 @@ fn respondHealth(_: *Request) !Response {
     };
 }
 
-fn respondContacts(request: *Request) !Response {
+fn respondGithubLoginParams(_: *Request) !Response {
+    // const state = "abc123";
+    const body =
+        \\{
+        \\  "github_client_id": "
+    ++ github.GITHUB_CLIENT_ID ++
+        \\"
+        \\}
+    ;
+
+    return Response{
+        .body = Body{ .comp = body },
+        .content_type = Mime.application_json,
+    };
+}
+
+test respondGithubLoginParams {
+    const expected_body =
+        \\{
+        \\  "github_client_id": "test_github_client_id"
+        \\}
+    ;
+    try testResponse("GET", "/auth/github/login_params", expected_body, Mime.application_json, .ok);
+}
+
+fn respondGithubCallback(request: *Request) !Response {
     var query = try request.getQuery();
     defer query.deinit();
 
-    const id = query.get("id") orelse {
+    _ = query.get("code") orelse {
         return Response{
-            .body = Body{ .comp = "Missing expected query param `id`" },
+            .body = Body{ .comp = "Missing expected query param `code`" },
             .content_type = Mime.text_plain,
             .status = .bad_request,
         };
     };
 
-    var contact_list = model.ContactList.fromCsvFile(request.arena, id, true) catch |err| {
+    return respondIndex(request);
+}
+
+fn respondGithubAccessToken(request: *Request) !Response {
+    var query = try request.getQuery();
+    defer query.deinit();
+
+    // TODO: Should verify "state" as well.
+
+    const code = query.get("code") orelse {
+        return Response{
+            .body = Body{ .comp = "Missing expected query param `code`" },
+            .content_type = Mime.text_plain,
+            .status = .bad_request,
+        };
+    };
+
+    const token = try github.fetch_token(request.arena, code);
+
+    return Response{
+        .body = Body{ .alloc = token },
+        .content_type = Mime.text_plain,
+    };
+}
+
+fn respondUserContacts(request: *Request) !Response {
+    var query = try request.getQuery();
+    defer query.deinit();
+
+    const parsed_gh_user_info = request.authenticateViaGithub() catch |err| {
+        switch (err) {
+            error.UnauthenticatedRequest => {
+                return try respondUnauthorized(request);
+            },
+            else => {
+                logErr("Unexpected error when authenticating user: {!}", .{err});
+                return err;
+            },
+        }
+    };
+    defer parsed_gh_user_info.deinit();
+
+    const gh_user_info = parsed_gh_user_info.value;
+
+    var contact_list = model.ContactList.fromCsvFile(request.arena, gh_user_info.login, true) catch |err| {
         return switch (err) {
-            error.ContactListNotFound => respond404(request),
+            error.ContactListNotFound => respondNotFound(request),
             else => err,
         };
     };
@@ -148,8 +229,8 @@ fn respondContacts(request: *Request) !Response {
 
     const body = try std.fmt.allocPrint(
         request.arena,
-        "ID: {s}\n\n{s}",
-        .{ id, contact_list },
+        "User: {s}\n\n{s}",
+        .{ gh_user_info.login, contact_list },
     );
 
     return Response{
@@ -162,12 +243,13 @@ fn eqlU8(str1: []const u8, str2: []const u8) bool {
     return std.mem.eql(u8, str1, str2);
 }
 
-const Mime = enum {
+pub const Mime = enum {
     text_html,
     text_javascript,
     text_css,
     text_plain,
     application_json,
+    application_x_www_form_url_encoded,
     image_x_icon,
     image_svg,
     image_png,
@@ -205,6 +287,7 @@ const Mime = enum {
             Mime.text_css => "text/css",
             Mime.text_plain => "text/plain",
             Mime.application_json => "application/json",
+            Mime.application_x_www_form_url_encoded => "application/x-www-form-urlencoded",
             Mime.image_x_icon => "image/x-icon",
             Mime.image_svg => "image/svg",
             Mime.image_png => "image/png",
@@ -248,7 +331,7 @@ fn respondServeFile(request: *Request) !Response {
         switch (err) {
             error.FileNotFound => {
                 logger.warn("Static file not found: {!}", .{err});
-                return respond404(request);
+                return respondNotFound(request);
             },
             else => return err,
         }
@@ -260,7 +343,33 @@ fn respondServeFile(request: *Request) !Response {
     };
 }
 
-fn respond404(_: *Request) !Response {
+fn respondIndex(_: *Request) !Response {
+    const path = "/index.html";
+    const body: []const u8 = try readPublicFile(path);
+
+    return Response{
+        .body = Body{ .comp = body },
+        .content_type = Mime.fromString(path) catch Mime.text_plain,
+    };
+}
+
+fn respondTestingError(_: *Request) !Response {
+    return error.TestErrorTriggered;
+}
+
+test respondTestingError {
+    try testResponse("GET", "/testing/error", "500 WHOOPSIE", Mime.text_plain, .internal_server_error);
+}
+
+fn respondUnauthorized(_: *Request) !Response {
+    return Response{
+        .body = Body{ .comp = "Unauthorized" },
+        .content_type = Mime.text_plain,
+        .status = .unauthorized,
+    };
+}
+
+fn respondNotFound(_: *Request) !Response {
     return Response{
         .body = Body{ .comp = "404 NOT FOUND" },
         .content_type = Mime.text_plain,
@@ -268,7 +377,7 @@ fn respond404(_: *Request) !Response {
     };
 }
 
-fn respond500(_: *Request) !Response {
+fn respondInternalServerError(_: *Request) !Response {
     return Response{
         .body = Body{ .comp = "500 WHOOPSIE" },
         .content_type = Mime.text_plain,
@@ -327,27 +436,32 @@ test respondServeFile {
     try testResponse("GET", "/test.txt", "test\n", Mime.text_plain, .ok);
 }
 
-test respond404 {
+test respondNotFound {
     try testResponse("GET", "/not_existing_path", "404 NOT FOUND", Mime.text_plain, .not_found);
 }
 
-const endpoint404 = Endpoint{
+const endpointNotFound = Endpoint{
     // Path and method don't matter in this case.
     .path = "/404",
     .method = std.http.Method.GET,
-    .respond = &respond404,
+    .respond = &respondNotFound,
 };
 
-const endpoint500 = Endpoint{
+const endpointInternalServerError = Endpoint{
     // Path and method don't matter in this case.
     .path = "/500",
     .method = std.http.Method.GET,
-    .respond = &respond500,
+    .respond = &respondInternalServerError,
 };
 
 const endpoints = [_]Endpoint{
+    Endpoint{ .path = "/testing/error", .method = std.http.Method.GET, .respond = &respondTestingError },
+    Endpoint{ .path = "/", .method = std.http.Method.GET, .respond = &respondIndex },
     Endpoint{ .path = "/health", .method = std.http.Method.GET, .respond = &respondHealth },
-    Endpoint{ .path = "/contacts", .method = std.http.Method.GET, .respond = &respondContacts },
+    Endpoint{ .path = "/auth/github/login_params", .method = std.http.Method.GET, .respond = &respondGithubLoginParams },
+    Endpoint{ .path = "/auth/github/callback", .method = std.http.Method.GET, .respond = &respondGithubCallback },
+    Endpoint{ .path = "/auth/github/access_token", .method = std.http.Method.GET, .respond = &respondGithubAccessToken },
+    Endpoint{ .path = "/user/contacts", .method = std.http.Method.GET, .respond = &respondUserContacts },
 };
 
 fn getStaticEndpoints(allocator: std.mem.Allocator) ![]const Endpoint {
@@ -422,7 +536,7 @@ fn route(allocator: std.mem.Allocator, path: []const u8, method: std.http.Method
         }
     }
 
-    return endpoint404;
+    return endpointNotFound;
 }
 
 pub const Request = struct {
@@ -497,12 +611,18 @@ pub const Request = struct {
         try self.log();
 
         const matching_endpoint = route(self.arena, self.uri.path.percent_encoded, self.getMethod()) catch |err| blk: {
-            logger.err("Error while routing: {!}\n", .{err});
-            break :blk endpoint500;
+            logErr("Error while routing: {!}", .{err});
+            break :blk endpointInternalServerError;
         };
-        const response = try matching_endpoint.respond(self);
+        const response = matching_endpoint.respond(self) catch |err| blk: {
+            logErr("Error while generating response: {!}", .{err});
+            const internal_server_error_response = respondInternalServerError(self) catch unreachable;
+            break :blk internal_server_error_response;
+        };
         defer response.body.free(self.arena);
-        // TODO: Look into respondStreaming if need for manipulating the response arises.
+
+        // TODO: Look into respondStreaming if need for manipulating the response arises. And transfer-encoding `chunked`?
+
         response.log();
 
         const content_type = std.http.Header{ .name = "Content-Type", .value = response.content_type.toString() };
@@ -517,6 +637,24 @@ pub const Request = struct {
 
         // TODO: Returning Response for now is to make testing of responses easier. It's a hack.
         return response;
+    }
+
+    pub fn authenticateViaGithub(self: *Request) !std.json.Parsed(github.User) {
+        var header_iter = self.inner.iterateHeaders();
+        var auth_header_value: []const u8 = undefined;
+        while (header_iter.next()) |header| {
+            if (std.mem.eql(u8, "authorization", header.name) or (std.mem.eql(u8, "Authorization", header.name))) {
+                auth_header_value = header.value;
+                break;
+            }
+        } else {
+            return error.UnauthenticatedRequest;
+        }
+
+        const bearer_prefix = "Bearer ".len;
+        const access_token = auth_header_value[bearer_prefix - 1 ..];
+
+        return github.fetch_user(self.arena, access_token);
     }
 };
 
