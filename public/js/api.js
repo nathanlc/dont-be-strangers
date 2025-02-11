@@ -13,11 +13,11 @@ async function fetchGithubAccessToken(code) {
 async function fetchContactList() {
   const githubToken = storage.storedGithubToken();
   const accessToken = githubToken.access_token;
-  const contactList = await fetch('/user/contacts', {
+  const contactList = await fetch('/api/v0/user/contacts', {
     headers: {'Authorization': `Bearer ${accessToken}`},
   });
 
-  return contactList.text();
+  return contactList.json();
 }
 
 export default {

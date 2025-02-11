@@ -24,7 +24,7 @@ pub const Contact = struct {
     created_at: u32,
     full_name: []u8,
     frequency_days: u16,
-    contacted_at: ?u32,
+    due_at: u32,
 
     pub fn init(alloc: std.mem.Allocator) Contact {
         return .{
@@ -32,7 +32,7 @@ pub const Contact = struct {
             .created_at = undefined,
             .full_name = undefined,
             .frequency_days = undefined,
-            .contacted_at = null,
+            .due_at = undefined,
         };
     }
 
@@ -61,15 +61,8 @@ pub const Contact = struct {
         const frequency_days = parsedValue(reader.readUntilDelimiterOrEof(&buf, ','));
         contact.frequency_days = try std.fmt.parseInt(u16, frequency_days, 10);
 
-        const maybe_contacted_at = try reader.readUntilDelimiterOrEof(&buf, '\n');
-        if (maybe_contacted_at) |contacted_at| {
-            contact.contacted_at = std.fmt.parseInt(u32, contacted_at, 10) catch |err| blk: {
-                break :blk switch (err) {
-                    error.InvalidCharacter => null,
-                    else => unreachable,
-                };
-            };
-        }
+        const due_at = parsedValue(reader.readUntilDelimiterOrEof(&buf, '\n'));
+        contact.due_at = try std.fmt.parseInt(u32, due_at, 10);
 
         return contact;
     }
@@ -92,28 +85,23 @@ pub const Contact = struct {
             \\  created_at: {d},
             \\  full_name: {s},
             \\  frequency_days: {d},
-            \\  contacted_at: {?})
+            \\  due_at: {d})
         , .{
             self.created_at,
             self.full_name,
             self.frequency_days,
-            self.contacted_at,
+            self.due_at,
         });
     }
 };
 
 pub const ContactList = struct {
-    contacts: std.ArrayList(Contact),
-
-    pub fn init(alloc: std.mem.Allocator) ContactList {
-        return .{
-            .contacts = std.ArrayList(Contact).init(alloc),
-        };
-    }
+    alloc: std.mem.Allocator,
+    contacts: []Contact,
 
     pub fn fromCsvReader(alloc: std.mem.Allocator, reader: anytype, has_headers: bool) !ContactList {
-        var contact_list = ContactList.init(alloc);
-        errdefer contact_list.deinit();
+        var contact_array = std.ArrayList(Contact).init(alloc);
+        errdefer contact_array.deinit();
 
         // Skip headers
         if (has_headers) {
@@ -124,10 +112,13 @@ pub const ContactList = struct {
                 break;
             };
             errdefer contact.deinit();
-            try contact_list.contacts.append(contact);
+            try contact_array.append(contact);
         }
 
-        return contact_list;
+        return ContactList{
+            .alloc = alloc,
+            .contacts = try contact_array.toOwnedSlice(),
+        };
     }
 
     pub fn fromCsvFile(alloc: std.mem.Allocator, id: []const u8, has_headers: bool) !ContactList {
@@ -150,10 +141,10 @@ pub const ContactList = struct {
     }
 
     pub fn deinit(self: ContactList) void {
-        for (self.contacts.items) |contact| {
+        for (self.contacts) |contact| {
             contact.deinit();
         }
-        self.contacts.deinit();
+        self.alloc.free(self.contacts);
     }
 
     pub fn format(
@@ -165,16 +156,16 @@ pub const ContactList = struct {
         _ = fmt;
         _ = options;
 
-        for (self.contacts.items, 0..) |contact, i| {
+        for (self.contacts, 0..) |contact, i| {
             try writer.print("{s}", .{contact});
-            if (i < (self.contacts.items.len - 1)) {
+            if (i < (self.contacts.len - 1)) {
                 try writer.print("\n\n", .{});
             }
         }
     }
 };
 
-test "Contact.fromCsvLine with some contacted_at" {
+test "Contact.fromCsvLine" {
     const expect = std.testing.expect;
 
     const csv_line = "1737401035,john doe,30,1737400035\n";
@@ -186,22 +177,7 @@ test "Contact.fromCsvLine with some contacted_at" {
     try expect(contact.created_at == 1737401035);
     try expect(std.mem.eql(u8, contact.full_name, "john doe"));
     try expect(contact.frequency_days == 30);
-    try expect(contact.contacted_at.? == 1737400035);
-}
-
-test "Contact.fromCsvLine with contacted_at null" {
-    const expect = std.testing.expect;
-
-    const csv_line = "1737401035,john doe,30,\n";
-    var stream = std.io.fixedBufferStream(csv_line);
-    const reader = stream.reader();
-    const contact = try Contact.fromCsvLine(std.testing.allocator, reader);
-    defer contact.deinit();
-
-    try expect(contact.created_at == 1737401035);
-    try expect(std.mem.eql(u8, contact.full_name, "john doe"));
-    try expect(contact.frequency_days == 30);
-    try expect(contact.contacted_at == null);
+    try expect(contact.due_at == 1737400035);
 }
 
 test "ContactList.fromCsvReader" {
@@ -214,43 +190,25 @@ test "ContactList.fromCsvReader" {
     var contact_list = try ContactList.fromCsvReader(alloc, test_db.reader(), true);
     defer contact_list.deinit();
 
-    const first_contact = contact_list.contacts.items[0];
-    const second_contact = contact_list.contacts.items[1];
+    const first_contact = contact_list.contacts[0];
+    const second_contact = contact_list.contacts[1];
 
     try expect(first_contact.created_at == 1737401035);
     try expect(std.mem.eql(u8, first_contact.full_name, "john doe"));
     try expect(first_contact.frequency_days == 30);
-    try expect(first_contact.contacted_at.? == 1737400035);
+    try expect(first_contact.due_at == 1737400035);
 
     try expect(second_contact.created_at == 1737401036);
     try expect(std.mem.eql(u8, second_contact.full_name, "jane doe"));
     try expect(second_contact.frequency_days == 14);
-    try expect(second_contact.contacted_at == null);
+    try expect(second_contact.due_at == 1737400036);
 }
 
 test "ContactList.format" {
     const alloc = std.testing.allocator;
 
-    var contact = Contact.init(alloc);
-    contact.created_at = 1737401035;
-    var full_name = std.ArrayList(u8).init(alloc);
-    try full_name.appendSlice("john doe");
-    contact.full_name = full_name.items;
-    contact.frequency_days = 30;
-    contact.contacted_at = 1737400035;
-
-    var other_contact = Contact.init(alloc);
-    other_contact.created_at = 1737401036;
-    var other_full_name = std.ArrayList(u8).init(alloc);
-    try other_full_name.appendSlice("jane doe");
-    other_contact.full_name = other_full_name.items;
-    other_contact.frequency_days = 14;
-    other_contact.contacted_at = null;
-
-    var contact_list = ContactList.init(alloc);
+    var contact_list = try ContactList.fromCsvFile(alloc, "test_db", true);
     defer contact_list.deinit();
-    try contact_list.contacts.append(contact);
-    try contact_list.contacts.append(other_contact);
 
     const contact_list_fmt_str = try std.fmt.allocPrint(alloc, "{s}", .{contact_list});
     defer alloc.free(contact_list_fmt_str);
@@ -260,12 +218,12 @@ test "ContactList.format" {
         \\  created_at: 1737401035,
         \\  full_name: john doe,
         \\  frequency_days: 30,
-        \\  contacted_at: 1737400035)
+        \\  due_at: 1737400035)
         \\
         \\Contact(
         \\  created_at: 1737401036,
         \\  full_name: jane doe,
         \\  frequency_days: 14,
-        \\  contacted_at: null)
+        \\  due_at: 1737400036)
     ));
 }

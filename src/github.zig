@@ -30,7 +30,6 @@ pub fn fetch_token(alloc: std.mem.Allocator, code: []const u8) ![]const u8 {
     defer client.deinit();
 
     const uri = try std.Uri.parse(TOKEN_URL);
-    std.debug.print("URI: {}\n", .{uri});
     var header_buffer: [4096]u8 = undefined;
     var request = try client.open(.POST, uri, .{ .server_header_buffer = &header_buffer });
     defer request.deinit();
@@ -51,8 +50,6 @@ pub fn fetch_token(alloc: std.mem.Allocator, code: []const u8) ![]const u8 {
     };
     request.transfer_encoding = .{ .content_length = body.len };
 
-    std.debug.print("Client body:\n{s}\n", .{body});
-
     try request.send();
     try request.writeAll(body);
     try request.finish();
@@ -66,8 +63,6 @@ pub fn fetch_token(alloc: std.mem.Allocator, code: []const u8) ![]const u8 {
     if (response.status.class() != .success) {
         logger.err("Failed to fetch token:\n{s}", .{response_body});
     }
-
-    std.debug.print("Response body:\n{s}\n", .{response_body});
 
     // return try std.json.parseFromSlice(Token, alloc, response_body, .{});
     return response_body;
@@ -83,7 +78,6 @@ pub fn fetch_user(alloc: std.mem.Allocator, access_token: []const u8) !std.json.
     defer client.deinit();
 
     const uri = try std.Uri.parse(USER_URL);
-    std.debug.print("URI: {}\n", .{uri});
     var header_buffer: [4096]u8 = undefined;
     var request = try client.open(.GET, uri, .{ .server_header_buffer = &header_buffer });
     defer request.deinit();
@@ -110,8 +104,6 @@ pub fn fetch_user(alloc: std.mem.Allocator, access_token: []const u8) !std.json.
 
     const response = request.response;
 
-    std.debug.print("fetch_user response:\n{s}\n", .{response_body});
-
     if (response.status.class() != .success) {
         logger.warn("Failed to validate token:\n{s}", .{response_body});
         return error.InvalidToken;
@@ -123,8 +115,6 @@ pub fn fetch_user(alloc: std.mem.Allocator, access_token: []const u8) !std.json.
         response_body,
         .{ .ignore_unknown_fields = true },
     );
-
-    std.debug.print("Response body:\n{s}\n", .{response_body});
 
     return parsed_user;
 }

@@ -200,6 +200,89 @@ fn respondGithubAccessToken(request: *Request) !Response {
     };
 }
 
+const ContactView = struct {
+    created_at: u32,
+    full_name: []const u8,
+    frequency_days: u16,
+    due_at: u32,
+
+    pub fn fromContact(contact: model.Contact) ContactView {
+        return ContactView{
+            .created_at = contact.created_at,
+            .full_name = contact.full_name,
+            .frequency_days = contact.frequency_days,
+            .due_at = contact.due_at,
+        };
+    }
+};
+
+test "ContactView.fromContact" {
+    const alloc = std.testing.allocator;
+    const expectEqual = std.testing.expectEqual;
+
+    var contact = model.Contact.init(alloc);
+    defer contact.deinit();
+    contact.created_at = 1737401035;
+    var full_name = std.ArrayList(u8).init(alloc);
+    try full_name.appendSlice("john doe");
+    contact.full_name = full_name.items;
+    contact.frequency_days = 30;
+    contact.due_at = 1737400035;
+
+    const contact_view = ContactView.fromContact(contact);
+    try expectEqual(1737401035, contact_view.created_at);
+    try expectEqual(30, contact_view.frequency_days);
+    try std.testing.expectEqualStrings("john doe", contact_view.full_name);
+    try expectEqual(1737400035, contact_view.due_at);
+}
+
+const ContactViewList = struct {
+    alloc: std.mem.Allocator,
+    contacts: []ContactView,
+
+    pub fn fromContactList(alloc: std.mem.Allocator, contact_list: model.ContactList) !ContactViewList {
+        var contact_view_list = std.ArrayList(ContactView).init(alloc);
+        for (contact_list.contacts) |contact| {
+            const contact_view = ContactView.fromContact(contact);
+            try contact_view_list.append(contact_view);
+        }
+
+        return ContactViewList{
+            .alloc = alloc,
+            .contacts = try contact_view_list.toOwnedSlice(),
+        };
+    }
+
+    pub fn deinit(self: *const ContactViewList) void {
+        self.alloc.free(self.contacts);
+    }
+
+    pub fn jsonStringify(self: *const ContactViewList, jw: anytype) !void {
+        try jw.beginArray();
+        for (self.contacts) |contact| {
+            try jw.write(contact);
+        }
+        try jw.endArray();
+    }
+};
+
+test "ContactViewList.fromContactList" {
+    const alloc = std.testing.allocator;
+    const expectEqual = std.testing.expectEqual;
+
+    var contact_list = try model.ContactList.fromCsvFile(alloc, "test_db", true);
+    defer contact_list.deinit();
+
+    const contact_view_list = try ContactViewList.fromContactList(alloc, contact_list);
+    defer contact_view_list.deinit();
+    const contact_view = contact_view_list.contacts[1];
+
+    try expectEqual(1737401036, contact_view.created_at);
+    try expectEqual(14, contact_view.frequency_days);
+    try std.testing.expectEqualStrings("jane doe", contact_view.full_name);
+    try expectEqual(1737400036, contact_view.due_at);
+}
+
 fn respondUserContacts(request: *Request) !Response {
     var query = try request.getQuery();
     defer query.deinit();
@@ -227,10 +310,13 @@ fn respondUserContacts(request: *Request) !Response {
     };
     defer contact_list.deinit();
 
-    const body = try std.fmt.allocPrint(
+    const contact_view_list = try ContactViewList.fromContactList(request.arena, contact_list);
+    defer contact_view_list.deinit();
+
+    const body = try std.json.stringifyAlloc(
         request.arena,
-        "User: {s}\n\n{s}",
-        .{ gh_user_info.login, contact_list },
+        contact_view_list,
+        .{},
     );
 
     return Response{
@@ -461,7 +547,7 @@ const endpoints = [_]Endpoint{
     Endpoint{ .path = "/auth/github/login_params", .method = std.http.Method.GET, .respond = &respondGithubLoginParams },
     Endpoint{ .path = "/auth/github/callback", .method = std.http.Method.GET, .respond = &respondGithubCallback },
     Endpoint{ .path = "/auth/github/access_token", .method = std.http.Method.GET, .respond = &respondGithubAccessToken },
-    Endpoint{ .path = "/user/contacts", .method = std.http.Method.GET, .respond = &respondUserContacts },
+    Endpoint{ .path = "/api/v0/user/contacts", .method = std.http.Method.GET, .respond = &respondUserContacts },
 };
 
 fn getStaticEndpoints(allocator: std.mem.Allocator) ![]const Endpoint {
