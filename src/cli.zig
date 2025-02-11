@@ -20,15 +20,19 @@ const ActionTag = enum {
     // pub fn helpMessage(self: Action) []const u8 {
     //     switch (self) {
     //         .help => return
-    //         \\keep-in-touch-backend help...
+    //         \\dont-be-strangers help...
     //         \\  blablabla
     //         ,
-    //         .list => return
-    //         \\keep-in-touch-backend list help...
+    //         .scratch => return
+    //         \\dont-be-strangers scratch help...
+    //         \\  blablabla
+    //         ,
+    //         .contacts => return
+    //         \\dont-be-strangers contacts help...
     //         \\  blablabla
     //         ,
     //         .server => return
-    //         \\keep-in-touch-backend server help...
+    //         \\dont-be-strangers server help...
     //         \\  blablabla
     //         ,
     //     }
@@ -124,7 +128,7 @@ const Error = error{
 
 pub fn runHelp() !void {
     const stdout = std.io.getStdOut().writer();
-    try stdout.print("keep-in-touch-backend help blablabla\n", .{});
+    try stdout.print("dont-be-strangers help blablabla\n", .{});
 }
 
 pub fn runContactsList(allocator: std.mem.Allocator, id: []const u8) !void {

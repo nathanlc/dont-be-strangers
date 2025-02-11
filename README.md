@@ -1,4 +1,4 @@
-# Keep in touch (backend)
+# Don't be strangers
 
 Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)

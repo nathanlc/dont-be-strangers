@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
 
     // root.zig is not used in our project.
     // const lib = b.addStaticLibrary(.{
-    //     .name = "keep-in-touch-backend",
+    //     .name = "dont-be-strangers",
     //     // In this case the main source file is merely a path, however, in more
     //     // complicated build scripts, this could be a generated file.
     //     .root_source_file = b.path("src/root.zig"),
@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
     // b.installArtifact(lib);
 
     const exe = b.addExecutable(.{
-        .name = "keep-in-touch-backend",
+        .name = "dont-be-strangers",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
