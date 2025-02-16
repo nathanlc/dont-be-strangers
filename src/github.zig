@@ -15,17 +15,7 @@ const USER_URL = API_URL ++ "/user";
 
 const logger = std.log.scoped(.github);
 
-// const Token = struct {
-//     access_token: []const u8,
-//     expires_in: u16,
-//     refresh_token: []const u8,
-//     refresh_token_expires_in: u32,
-//     token_type: []const u8,
-//     scope: []const u8,
-// };
-
-// pub fn fetch_token(alloc: std.mem.Allocator, code: []const u8) !std.json.Parsed(Token) {
-pub fn fetch_token(alloc: std.mem.Allocator, code: []const u8) ![]const u8 {
+pub fn fetch_token(alloc: std.mem.Allocator, grant_type: web.GrantType, resource: []const u8) !web.Response {
     var client = std.http.Client{ .allocator = alloc };
     defer client.deinit();
 
@@ -35,11 +25,19 @@ pub fn fetch_token(alloc: std.mem.Allocator, code: []const u8) ![]const u8 {
     defer request.deinit();
 
     // TODO: Replace allocPrint with bufPrint when known len?
-    const body = try std.fmt.allocPrint(
-        alloc,
-        "{{\"client_id\":\"" ++ GITHUB_CLIENT_ID ++ "\",\"client_secret\":\"" ++ GITHUB_CLIENT_SECRET ++ "\",\"code\":\"{s}\"}}",
-        .{code},
-    );
+    const body = switch (grant_type) {
+        .AuthorizationCode => try std.fmt.allocPrint(
+            alloc,
+            "{{\"client_id\":\"" ++ GITHUB_CLIENT_ID ++ "\",\"client_secret\":\"" ++ GITHUB_CLIENT_SECRET ++ "\",\"code\":\"{s}\"}}",
+            .{resource},
+        ),
+        .RefreshToken => try std.fmt.allocPrint(
+            alloc,
+            "{{\"client_id\":\"" ++ GITHUB_CLIENT_ID ++ "\",\"client_secret\":\"" ++ GITHUB_CLIENT_SECRET ++ "\",\"grant_type\":\"refresh_token\",\"refresh_token\": \"{s}\"}}",
+            .{resource},
+        ),
+    };
+
     defer alloc.free(body);
     request.headers.connection = .omit;
     request.headers.content_type = .{
@@ -65,7 +63,11 @@ pub fn fetch_token(alloc: std.mem.Allocator, code: []const u8) ![]const u8 {
     }
 
     // return try std.json.parseFromSlice(Token, alloc, response_body, .{});
-    return response_body;
+    return web.Response{
+        .body = .{ .alloc = response_body },
+        .content_type = web.Mime.application_json,
+        .status = response.status,
+    };
 }
 
 pub const User = struct {

@@ -104,7 +104,7 @@ const Body = union(BodyTag) {
     }
 };
 
-const Response = struct {
+pub const Response = struct {
     body: Body,
     content_type: Mime,
     status: std.http.Status = .ok,
@@ -178,6 +178,11 @@ fn respondGithubCallback(request: *Request) !Response {
     return respondIndex(request);
 }
 
+pub const GrantType = enum {
+    AuthorizationCode,
+    RefreshToken,
+};
+
 fn respondGithubAccessToken(request: *Request) !Response {
     var query = try request.getQuery();
     defer query.deinit();
@@ -192,12 +197,22 @@ fn respondGithubAccessToken(request: *Request) !Response {
         };
     };
 
-    const token = try github.fetch_token(request.arena, code);
+    return try github.fetch_token(request.arena, .AuthorizationCode, code);
+}
 
-    return Response{
-        .body = Body{ .alloc = token },
-        .content_type = Mime.text_plain,
+fn respondGithubRefreshToken(request: *Request) !Response {
+    var query = try request.getQuery();
+    defer query.deinit();
+
+    const refresh_token = query.get("refresh_token") orelse {
+        return Response{
+            .body = .{ .comp = "Missing expected query param `refresh_token`." },
+            .content_type = Mime.text_plain,
+            .status = .bad_request,
+        };
     };
+
+    return try github.fetch_token(request.arena, .RefreshToken, refresh_token);
 }
 
 const ContactView = struct {
@@ -541,12 +556,17 @@ const endpointInternalServerError = Endpoint{
 };
 
 const endpoints = [_]Endpoint{
+    // Test routes
     Endpoint{ .path = "/testing/error", .method = std.http.Method.GET, .respond = &respondTestingError },
-    Endpoint{ .path = "/", .method = std.http.Method.GET, .respond = &respondIndex },
     Endpoint{ .path = "/health", .method = std.http.Method.GET, .respond = &respondHealth },
+    // Web routes
+    Endpoint{ .path = "/", .method = std.http.Method.GET, .respond = &respondIndex },
+    Endpoint{ .path = "/user/contacts", .method = std.http.Method.GET, .respond = &respondIndex },
     Endpoint{ .path = "/auth/github/login_params", .method = std.http.Method.GET, .respond = &respondGithubLoginParams },
     Endpoint{ .path = "/auth/github/callback", .method = std.http.Method.GET, .respond = &respondGithubCallback },
     Endpoint{ .path = "/auth/github/access_token", .method = std.http.Method.GET, .respond = &respondGithubAccessToken },
+    Endpoint{ .path = "/auth/github/refresh_token", .method = std.http.Method.GET, .respond = &respondGithubRefreshToken },
+    // API routes
     Endpoint{ .path = "/api/v0/user/contacts", .method = std.http.Method.GET, .respond = &respondUserContacts },
 };
 

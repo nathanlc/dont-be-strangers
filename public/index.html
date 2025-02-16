@@ -14,20 +14,48 @@
     <link rel="manifest" href="/images/icons/site.webmanifest" />
   </head>
   <body>
+
     <main>
       <h1>Don't be strangers</h1>
 
-      <github-login></github-login>
-
-      <template id="template-github-login">
-        <div>
-          <button type="button" href="https://github.com/login/oauth/authorize?client_id=Iv23ctlNUeoLsIjnqQYG&state=TODObob123"
-            ">
-            Login with GitHub
-          </button>
-        </div>
-      </template>
+      <custom-router>
+        <custom-route data-path="/" data-element="home-page"></custom-route>
+        <custom-route data-path="/auth/github/callback" data-element="auth-github-callback"></custom-route>
+        <custom-route data-path="/user/contacts" data-element="contact-list" data-auth-required="true"></custom-route>
+      </custom-router>
     </main>
-    <script type="module" src="/js/index.js" defer></script>
+
+    <template id="template-home-page">
+      <github-login></github-login>
+    </template>
+
+    <template id="template-contact-list">
+      <h3>Contacts</h3>
+      <ul></ul>
+    </template>
+
+    <template id="template-contact-item">
+      <li>
+        <span class="full-name"></span>
+        <span class="frequency-days"></span>
+        <span class="due-at"></span>
+      </li>
+    </template>
+
+    <template id="template-github-login">
+      <div>
+        <button type="button" href="https://github.com/login/oauth/authorize?client_id=Iv23ctlNUeoLsIjnqQYG&state=TODObob123">
+          Login with GitHub
+        </button>
+      </div>
+    </template>
+
+    <template id="template-internal-link">
+      <a slot="link" href="[[href]]">
+        <slot></slot>
+      </a>
+    </template>
+
+    <script type="module" src="/js/index.js"></script>
   </body>
 </html>
