@@ -12,9 +12,9 @@ class AuthGithubCallback extends HTMLElement {
     (async () => {
       const searchParams = new URLSearchParams(location.search);
       const code = searchParams.get('code');
-      //const state = searchParams.get('state');
+      const state = searchParams.get('state');
 
-      await auth.fetchGithubToken(code);
+      await auth.fetchGithubToken(code, state);
       routing.push('/', {});
     })();
   }

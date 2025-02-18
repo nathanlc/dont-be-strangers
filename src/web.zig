@@ -138,29 +138,65 @@ fn respondHealth(_: *Request) !Response {
     };
 }
 
-fn respondGithubLoginParams(_: *Request) !Response {
-    // const state = "abc123";
-    const body =
-        \\{
-        \\  "github_client_id": "
-    ++ github.GITHUB_CLIENT_ID ++
-        \\"
-        \\}
-    ;
+fn respondGithubLoginParams(request: *Request) !Response {
+    const state = try request.app.newNonce();
+    const body = try std.fmt.allocPrint(
+        request.arena,
+        "{{\"github_client_id\":\"" ++ github.GITHUB_CLIENT_ID ++ "\",\"state\":\"{s}\"}}",
+        .{state},
+    );
 
     return Response{
-        .body = Body{ .comp = body },
+        .body = Body{ .alloc = body },
         .content_type = Mime.application_json,
     };
 }
 
 test respondGithubLoginParams {
-    const expected_body =
-        \\{
-        \\  "github_client_id": "test_github_client_id"
-        \\}
-    ;
-    try testResponse("GET", "/auth/github/login_params", expected_body, Mime.application_json, .ok);
+    const allocator = std.testing.allocator;
+
+    var app = App.init(allocator);
+    defer app.deinit();
+
+    const ip = "127.0.0.1";
+    const port = 3011;
+
+    const server_thread = try std.Thread.spawn(.{}, (struct {
+        fn apply(app_ptr: *App) !void {
+            const address = try std.net.Address.resolveIp(ip, port);
+            var net_server = try address.listen(.{ .reuse_address = true });
+            defer net_server.deinit();
+
+            const connection = try net_server.accept();
+            defer connection.stream.close();
+
+            var server_buffer: [2048]u8 = undefined;
+            var server = std.http.Server.init(connection, &server_buffer);
+            var request = try Request.init(allocator, app_ptr, try server.receiveHead());
+            defer request.deinit();
+
+            const response = try request.respond();
+
+            const body_str = response.body.bodyStr();
+            try std.testing.expectEqual(87, body_str.len);
+            try std.testing.expectEqual(Mime.application_json, response.content_type);
+            try std.testing.expectEqual(.ok, response.status);
+        }
+    }).apply, .{&app});
+
+    const request_bytes =
+        "GET /auth/github/login_params HTTP/1.1\r\n" ++
+        "Accept: */*\r\n" ++
+        "\r\n";
+
+    // Pause for 0.001s otherwise connection is refused in github actions...
+    std.posix.nanosleep(0, 1_000_000);
+
+    const stream = try std.net.tcpConnectToHost(allocator, ip, port);
+    defer stream.close();
+    _ = try stream.writeAll(request_bytes[0..]);
+
+    server_thread.join();
 }
 
 fn respondGithubCallback(request: *Request) !Response {
@@ -187,8 +223,6 @@ fn respondGithubAccessToken(request: *Request) !Response {
     var query = try request.getQuery();
     defer query.deinit();
 
-    // TODO: Should verify "state" as well.
-
     const code = query.get("code") orelse {
         return Response{
             .body = Body{ .comp = "Missing expected query param `code`" },
@@ -196,6 +230,23 @@ fn respondGithubAccessToken(request: *Request) !Response {
             .status = .bad_request,
         };
     };
+
+    const state = query.get("state") orelse {
+        return Response{
+            .body = Body{ .comp = "Missing expected query param `state`" },
+            .content_type = Mime.text_plain,
+            .status = .bad_request,
+        };
+    };
+
+    const state_valid = request.app.removeNonce(state);
+    if (!state_valid) {
+        return Response{
+            .body = Body{ .comp = "Invalid state query param" },
+            .content_type = Mime.text_plain,
+            .status = .forbidden,
+        };
+    }
 
     return try github.fetch_token(request.arena, .AuthorizationCode, code);
 }
@@ -489,11 +540,14 @@ fn respondInternalServerError(_: *Request) !Response {
 fn testResponse(comptime method: []const u8, comptime path: []const u8, expected_body: []const u8, expected_mime: Mime, expected_status: std.http.Status) !void {
     const allocator = std.testing.allocator;
 
+    var app = App.init(allocator);
+    defer app.deinit();
+
     const ip = "127.0.0.1";
     const port = 3010;
 
     const server_thread = try std.Thread.spawn(.{}, (struct {
-        fn apply(e_body: []const u8, e_mime: Mime, e_status: std.http.Status) !void {
+        fn apply(app_ptr: *App, e_body: []const u8, e_mime: Mime, e_status: std.http.Status) !void {
             const address = try std.net.Address.resolveIp(ip, port);
             var net_server = try address.listen(.{ .reuse_address = true });
             defer net_server.deinit();
@@ -503,7 +557,7 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
 
             var server_buffer: [2048]u8 = undefined;
             var server = std.http.Server.init(connection, &server_buffer);
-            var request = try Request.init(try server.receiveHead(), allocator);
+            var request = try Request.init(allocator, app_ptr, try server.receiveHead());
             defer request.deinit();
 
             const response = try request.respond();
@@ -512,7 +566,7 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
             try std.testing.expectEqual(e_mime, response.content_type);
             try std.testing.expectEqual(e_status, response.status);
         }
-    }).apply, .{ expected_body, expected_mime, expected_status });
+    }).apply, .{ &app, expected_body, expected_mime, expected_status });
 
     const request_bytes =
         method ++ " " ++ path ++ " HTTP/1.1\r\n" ++
@@ -646,12 +700,13 @@ fn route(allocator: std.mem.Allocator, path: []const u8, method: std.http.Method
 }
 
 pub const Request = struct {
-    inner: std.http.Server.Request,
     arena: std.mem.Allocator,
+    app: *App,
+    inner: std.http.Server.Request,
     url: []const u8,
     uri: std.Uri,
 
-    pub fn init(request: std.http.Server.Request, arena: std.mem.Allocator) !Request {
+    pub fn init(arena: std.mem.Allocator, app: *App, request: std.http.Server.Request) !Request {
         // TODO: figure out how to get the full URL. Or does it actually matter?
         const url = try std.fmt.allocPrint(
             arena,
@@ -661,8 +716,9 @@ pub const Request = struct {
         const uri = try std.Uri.parse(url);
 
         return .{
-            .inner = request,
             .arena = arena,
+            .app = app,
+            .inner = request,
             .url = url,
             .uri = uri,
         };
@@ -764,7 +820,81 @@ pub const Request = struct {
     }
 };
 
+const App = struct {
+    alloc: std.mem.Allocator,
+    // This should be a secure pseudo-random number generator.
+    rand: std.Random,
+    // Nonce list. Used for instance for respondGithubLoginParams.
+    // The type does not matter, the once will be the key.
+    nonce_map: std.StringHashMap(bool),
+
+    pub fn init(alloc: std.mem.Allocator) App {
+        var nonce_map = std.StringHashMap(bool).init(alloc);
+        _ = &nonce_map;
+
+        return .{
+            .alloc = alloc,
+            .rand = std.crypto.random,
+            .nonce_map = nonce_map,
+        };
+    }
+
+    pub fn deinit(self: *App) void {
+        var entry_iter = self.nonce_map.iterator();
+        while (entry_iter.next()) |entry| {
+            self.alloc.free(entry.key_ptr.*);
+        }
+        self.nonce_map.deinit();
+    }
+
+    pub fn newNonce(self: *App) ![]const u8 {
+        const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        const nonce_len = 32;
+        var buf: [nonce_len]u8 = undefined;
+        for (0..nonce_len) |i| {
+            const random_int = self.rand.uintLessThan(u8, chars.len);
+            buf[i] = chars[random_int];
+        }
+        const nonce = try self.alloc.alloc(u8, buf.len);
+        errdefer self.alloc.free(nonce);
+        @memcpy(nonce, &buf);
+        try self.nonce_map.put(nonce, true);
+
+        return nonce;
+    }
+
+    pub fn removeNonce(self: *App, nonce: []const u8) bool {
+        return if (self.nonce_map.getKey(nonce)) |key| blk: {
+            const deleted = self.nonce_map.remove(key);
+            self.alloc.free(key);
+            break :blk deleted;
+        } else false;
+    }
+};
+
+test "App nonce" {
+    const alloc = std.testing.allocator;
+
+    var app = App.init(alloc);
+    defer app.deinit();
+
+    const nonce = try app.newNonce();
+    // nonce is freed as part of removeNonce.
+    // defer alloc.free(nonce);
+    try std.testing.expectEqual(32, nonce.len);
+
+    const nonce_deleted = app.removeNonce(nonce);
+    try std.testing.expectEqual(true, nonce_deleted);
+}
+
 pub fn runServer() !void {
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    // const allocator = std.heap.page_allocator
+    const allocator = general_purpose_allocator.allocator();
+
+    var app = App.init(allocator);
+    defer app.deinit();
+
     const address = try std.net.Address.resolveIp(DEFAULT_HOST, DEFAULT_PORT);
     var net_server = try address.listen(.{ .reuse_address = true });
     defer net_server.deinit();
@@ -777,12 +907,9 @@ pub fn runServer() !void {
 
         var server = std.http.Server.init(connection, &server_buffer);
 
-        var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-        const allocator = general_purpose_allocator.allocator();
-        // const allocator = std.heap.page_allocator
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
-        var request = try Request.init(try server.receiveHead(), arena.allocator());
+        var request = try Request.init(arena.allocator(), &app, try server.receiveHead());
 
         _ = try request.respond();
     }

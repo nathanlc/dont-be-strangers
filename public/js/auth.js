@@ -21,9 +21,9 @@ function setGithubToken(githubToken) {
   storage.setItem('github_token', githubTokenJson);
 }
 
-async function fetchGithubToken(code) {
+async function fetchGithubToken(code, state) {
   try {
-    const token = await api.fetchGithubToken(code);
+    const token = await api.fetchGithubToken(code, state);
     setGithubToken(token);
     return token;
   } catch (err) {

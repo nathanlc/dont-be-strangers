@@ -2,9 +2,9 @@
 
 import auth from './auth.js';
 
-async function fetchGithubToken(code) {
+async function fetchGithubToken(code, state) {
   try {
-    const response = await fetch(`/auth/github/access_token?code=${code}`);
+    const response = await fetch(`/auth/github/access_token?code=${code}&state=${state}`);
     return response.json();
   } catch (err) {
     console.error(err);

@@ -19,9 +19,10 @@ class GithubLogin extends HTMLElement {
       try {
         const params = await this.fetchLoginParams();
         const client_id = params.github_client_id;
+        const state = params.state;
         // This will redirect the user to Github which will then redirect back to
         // /auth/github/callback.
-        window.location.href = `https://github.com/login/oauth/authorize?client_id=${client_id}`;
+        window.location.href = `https://github.com/login/oauth/authorize?client_id=${client_id}&state=${state}`;
       } catch (err) {
         console.error(err);
       }
