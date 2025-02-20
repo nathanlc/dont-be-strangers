@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const model = @import("model.zig");
 const github = @import("github.zig");
+const tracy = @import("tracy.zig");
 
 const PUBLIC_PATH = "public/";
 const DEFAULT_URL_LENGTH = 2048;
@@ -307,6 +308,9 @@ const ContactViewList = struct {
     contacts: []ContactView,
 
     pub fn fromContactList(alloc: std.mem.Allocator, contact_list: model.ContactList) !ContactViewList {
+        const tr = tracy.trace(@src());
+        defer tr.end();
+
         var contact_view_list = std.ArrayList(ContactView).init(alloc);
         for (contact_list.contacts) |contact| {
             const contact_view = ContactView.fromContact(contact);
@@ -349,7 +353,10 @@ test "ContactViewList.fromContactList" {
     try expectEqual(1737400036, contact_view.due_at);
 }
 
-fn respondUserContacts(request: *Request) !Response {
+fn respondApiV0UserContacts(request: *Request) !Response {
+    const tr = tracy.trace(@src());
+    defer tr.end();
+
     var query = try request.getQuery();
     defer query.deinit();
 
@@ -509,6 +516,13 @@ fn respondTestingError(_: *Request) !Response {
     return error.TestErrorTriggered;
 }
 
+// fn respondStopServer(_: *Request) !Response {
+//     return Response{
+//         .body = Body{ .comp = "Stop server" },
+//         .content_type = Mime.text_plain,
+//     };
+// }
+
 test respondTestingError {
     try testResponse("GET", "/testing/error", "500 WHOOPSIE", Mime.text_plain, .internal_server_error);
 }
@@ -610,6 +624,7 @@ const endpointInternalServerError = Endpoint{
 };
 
 const endpoints = [_]Endpoint{
+    // Endpoint{ .path = "/stop_server", .method = std.http.Method.GET, .respond = &respondStopServer },
     // Test routes
     Endpoint{ .path = "/testing/error", .method = std.http.Method.GET, .respond = &respondTestingError },
     Endpoint{ .path = "/health", .method = std.http.Method.GET, .respond = &respondHealth },
@@ -621,7 +636,7 @@ const endpoints = [_]Endpoint{
     Endpoint{ .path = "/auth/github/access_token", .method = std.http.Method.GET, .respond = &respondGithubAccessToken },
     Endpoint{ .path = "/auth/github/refresh_token", .method = std.http.Method.GET, .respond = &respondGithubRefreshToken },
     // API routes
-    Endpoint{ .path = "/api/v0/user/contacts", .method = std.http.Method.GET, .respond = &respondUserContacts },
+    Endpoint{ .path = "/api/v0/user/contacts", .method = std.http.Method.GET, .respond = &respondApiV0UserContacts },
 };
 
 fn getStaticEndpoints(allocator: std.mem.Allocator) ![]const Endpoint {
@@ -755,6 +770,9 @@ pub const Request = struct {
     }
 
     fn getQuery(self: *Request) !Query {
+        const tr = tracy.trace(@src());
+        defer tr.end();
+
         const query_str = if (self.uri.query) |query| query.percent_encoded else "";
 
         return Query.init(self.arena, query_str);
@@ -770,6 +788,9 @@ pub const Request = struct {
     }
 
     pub fn respond(self: *Request) !Response {
+        const tr = tracy.trace(@src());
+        defer tr.end();
+
         try self.log();
 
         const matching_endpoint = route(self.arena, self.uri.path.percent_encoded, self.getMethod()) catch |err| blk: {
@@ -802,6 +823,9 @@ pub const Request = struct {
     }
 
     pub fn authenticateViaGithub(self: *Request) !std.json.Parsed(github.User) {
+        const tr = tracy.trace(@src());
+        defer tr.end();
+
         var header_iter = self.inner.iterateHeaders();
         var auth_header_value: []const u8 = undefined;
         while (header_iter.next()) |header| {
@@ -912,5 +936,7 @@ pub fn runServer() !void {
         var request = try Request.init(arena.allocator(), &app, try server.receiveHead());
 
         _ = try request.respond();
+        // const response = try request.respond();
+        // if (std.mem.eql(u8, "Stop server", response.body.bodyStr())) break;
     }
 }

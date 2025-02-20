@@ -1,4 +1,5 @@
 const std = @import("std");
+const trace = @import("tracy.zig").trace;
 
 const DB_DIR = "resource/db";
 const READ_FLAGS = std.fs.File.OpenFlags{ .mode = std.fs.File.OpenMode.read_only };
@@ -122,6 +123,9 @@ pub const ContactList = struct {
     }
 
     pub fn fromCsvFile(alloc: std.mem.Allocator, id: []const u8, has_headers: bool) !ContactList {
+        const tracy = trace(@src());
+        defer tracy.end();
+
         const db_path = try std.fmt.allocPrint(
             alloc,
             "{s}/{s}.csv",

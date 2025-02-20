@@ -14,6 +14,7 @@ class HomePage extends HTMLElement {
   }
 
   connectedCallback() {
+    // TODO refresh token if possible.
     if (auth.isAuthenticated()) {
       routing.push('/user/contacts', {});
     }

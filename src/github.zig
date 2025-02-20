@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const web = @import("web.zig");
 const config = if (builtin.is_test) @import("test.zig").Config{} else @import("config");
+const tracy = @import("tracy.zig");
 
 pub const GITHUB_CLIENT_ID = config.github_client_id orelse {
     @compileError("Missing github_client_id from config");
@@ -76,6 +77,9 @@ pub const User = struct {
 
 // This is used to validate the access token as well.
 pub fn fetch_user(alloc: std.mem.Allocator, access_token: []const u8) !std.json.Parsed(User) {
+    const tr = tracy.trace(@src());
+    defer tr.end();
+
     var client = std.http.Client{ .allocator = alloc };
     defer client.deinit();
 

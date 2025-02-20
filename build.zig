@@ -40,9 +40,43 @@ pub fn build(b: *std.Build) void {
     const github_client_id = b.option([]const u8, "github-client-id", "Github app registered client ID");
     const github_client_secret = b.option([]const u8, "github-client-secret", "Github app registered client secret");
 
+    // Taken from ziglang/zig std/tracy.zig
+    const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
+    const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
+    const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
+    const tracy_callstack_depth: u32 = b.option(u32, "tracy-callstack-depth", "Declare callstack depth for Tracy data. Does nothing if -Dtracy_callstack is not provided") orelse 10;
+
     const options = b.addOptions();
     options.addOption(?[]const u8, "github_client_id", github_client_id);
     options.addOption(?[]const u8, "github_client_secret", github_client_secret);
+
+    options.addOption(bool, "enable_tracy", tracy != null);
+    options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
+    options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
+    options.addOption(u32, "tracy_callstack_depth", tracy_callstack_depth);
+    if (tracy) |tracy_path| {
+        const client_cpp = b.pathJoin(
+            &[_][]const u8{ tracy_path, "public", "TracyClient.cpp" },
+        );
+
+        // On mingw, we need to opt into windows 7+ to get some features required by tracy.
+        const tracy_c_flags: []const []const u8 = if (target.result.os.tag == .windows and target.result.abi == .gnu)
+            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined", "-D_WIN32_WINNT=0x601" }
+        else
+            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
+
+        exe.root_module.addIncludePath(.{ .cwd_relative = tracy_path });
+        exe.root_module.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
+        // if (!enable_llvm) {
+        exe.root_module.linkSystemLibrary("c++", .{ .use_pkg_config = .no });
+        // }
+        exe.root_module.link_libc = true;
+
+        if (target.result.os.tag == .windows) {
+            exe.root_module.linkSystemLibrary("dbghelp", .{});
+            exe.root_module.linkSystemLibrary("ws2_32", .{});
+        }
+    }
 
     exe.root_module.addOptions("config", options);
 
