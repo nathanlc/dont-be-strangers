@@ -4,6 +4,10 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
+- Periodically clean up token cache? Or find a way to keep it tidy.
+- Refresh token when need be.
+- Add reminders.
+- Define "authenticated" endpoints (to share authentication logic).
 - Tracy figure out callstack empty. No symbols, related to dsymutil macos issue?
 - Tracy Flame graph?
 - Pass server config as options.

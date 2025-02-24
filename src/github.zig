@@ -16,7 +16,22 @@ const USER_URL = API_URL ++ "/user";
 
 const logger = std.log.scoped(.github);
 
-pub fn fetch_token(alloc: std.mem.Allocator, grant_type: web.GrantType, resource: []const u8) !web.Response {
+pub const FetchTokenError = error{
+    Unauthorized,
+    Forbidden,
+    NotFound,
+};
+
+pub const AccessToken = struct {
+    access_token: []u8,
+    expires_in: u32,
+    refresh_token: []u8,
+    refresh_token_expires_in: u32,
+    scope: []u8,
+    token_type: []u8,
+};
+
+pub fn fetch_token(alloc: std.mem.Allocator, grant_type: web.GrantType, resource: []const u8) !std.json.Parsed(AccessToken) {
     var client = std.http.Client{ .allocator = alloc };
     defer client.deinit();
 
@@ -63,12 +78,17 @@ pub fn fetch_token(alloc: std.mem.Allocator, grant_type: web.GrantType, resource
         logger.err("Failed to fetch token:\n{s}", .{response_body});
     }
 
-    // return try std.json.parseFromSlice(Token, alloc, response_body, .{});
-    return web.Response{
-        .body = .{ .alloc = response_body },
-        .content_type = web.Mime.application_json,
-        .status = response.status,
-    };
+    switch (response.status) {
+        .unauthorized => return FetchTokenError.Unauthorized,
+        .forbidden => return FetchTokenError.Forbidden,
+        .not_found => return FetchTokenError.NotFound,
+        else => {},
+    }
+    if (response.status.class() != .success) {
+        return error.Unexpected;
+    }
+
+    return try std.json.parseFromSlice(AccessToken, alloc, response_body, .{});
 }
 
 pub const User = struct {

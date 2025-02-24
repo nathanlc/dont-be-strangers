@@ -25,16 +25,10 @@ async function refreshGithubToken(refreshToken) {
 async function fetchContactList() {
   const githubToken = auth.getGithubToken();
   const accessToken = githubToken.access_token;
-  try {
-    const contactList = await fetch('/api/v0/user/contacts', {
-      headers: {'Authorization': `Bearer ${accessToken}`},
-    });
 
-    return contactList.json();
-  } catch (err) {
-    console.error(err);
-    return {};
-  }
+  return fetch('/api/v0/user/contacts', {
+    headers: {'Authorization': `Bearer ${accessToken}`},
+  });
 }
 
 export default {

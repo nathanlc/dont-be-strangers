@@ -4,21 +4,26 @@ import api from './api.js';
 import routing from './routing.js';
 
 const storage = window.sessionStorage;
+const GITHUB_TOKEN = 'github_token';
 
 function now_seconds() {
   return Math.floor(Date.now() / 1000);
 }
 
 function getGithubToken() {
-  const githubTokenItem = storage.getItem('github_token');
+  const githubTokenItem = storage.getItem(GITHUB_TOKEN);
   return JSON.parse(githubTokenItem);
+}
+
+function removeGithubToken() {
+  storage.removeItem(GITHUB_TOKEN);
 }
 
 function setGithubToken(githubToken) {
   // Github token doesn't include an "issued_at" field.
   githubToken.issued_at = now_seconds();
   const githubTokenJson = JSON.stringify(githubToken);
-  storage.setItem('github_token', githubTokenJson);
+  storage.setItem(GITHUB_TOKEN, githubTokenJson);
 }
 
 async function fetchGithubToken(code, state) {
@@ -86,7 +91,8 @@ async function authenticateGithub() {
 }
 
 export default {
-	getGithubToken,
+  getGithubToken,
+  removeGithubToken,
   fetchGithubToken,
   isAuthenticated,
   authenticateGithub,

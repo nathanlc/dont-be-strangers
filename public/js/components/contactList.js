@@ -23,7 +23,15 @@ class ContactList extends HTMLElement {
     }
 
     (async () => {
-      const contactList = await api.fetchContactList();
+      const response = await api.fetchContactList();
+      if (response.status === 401) {
+        // Access token is invalid, remove it and redirect to login.
+        auth.removeGithubToken();
+        routing.push('/', {});
+        return;
+      }
+
+      const contactList = await response.json();
       this.setContactList(contactList);
     })();
   }

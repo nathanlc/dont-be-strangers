@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const model = @import("model.zig");
 const github = @import("github.zig");
 const tracy = @import("tracy.zig");
+const assert = std.debug.assert;
 
 const PUBLIC_PATH = "public/";
 const DEFAULT_URL_LENGTH = 2048;
@@ -27,14 +28,7 @@ const Query = struct {
     map: std.StringHashMap([]const u8),
 
     fn fill_map(allocator: std.mem.Allocator, map: *std.StringHashMap([]const u8), query_str: []const u8) !void {
-        errdefer {
-            var entry_iter = map.iterator();
-            while (entry_iter.next()) |entry| {
-                allocator.free(entry.key_ptr.*);
-                allocator.free(entry.value_ptr.*);
-            }
-            map.deinit();
-        }
+        errdefer free_map(allocator, map);
 
         var part_iter = std.mem.splitScalar(u8, query_str, '&');
         while (part_iter.next()) |item| {
@@ -57,6 +51,15 @@ const Query = struct {
         }
     }
 
+    fn free_map(allocator: std.mem.Allocator, map: *std.StringHashMap([]const u8)) void {
+        var entry_iter = map.iterator();
+        while (entry_iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        map.deinit();
+    }
+
     pub fn init(allocator: std.mem.Allocator, query_str: []const u8) !Query {
         var map = std.StringHashMap([]const u8).init(allocator);
         try fill_map(allocator, &map, query_str);
@@ -73,14 +76,20 @@ const Query = struct {
     }
 
     pub fn deinit(self: *Query) void {
-        var entry_iter = self.map.iterator();
-        while (entry_iter.next()) |entry| {
-            self.allocator.free(entry.key_ptr.*);
-            self.allocator.free(entry.value_ptr.*);
-        }
-        self.map.deinit();
+        free_map(self.allocator, &self.map);
     }
 };
+
+test Query {
+    const alloc = std.testing.allocator;
+    const expect = std.testing.expect;
+
+    var query = try Query.init(alloc, "bob=cat&foo=bar123");
+    defer query.deinit();
+
+    try expect(std.mem.eql(u8, "cat", query.get("bob").?));
+    try expect(std.mem.eql(u8, "bar123", query.get("foo").?));
+}
 
 const BodyTag = enum {
     comp,
@@ -104,6 +113,19 @@ const Body = union(BodyTag) {
         }
     }
 };
+
+test Body {
+    const alloc = std.testing.allocator;
+    const expect = std.testing.expect;
+
+    const comp_body = Body{ .comp = "Comp known body" };
+    try expect(std.mem.eql(u8, "Comp known body", comp_body.bodyStr()));
+
+    const body_str = try std.fmt.allocPrint(alloc, "{s}", .{"Allocated body"});
+    const alloc_body = Body{ .alloc = body_str };
+    defer alloc.free(body_str);
+    try expect(std.mem.eql(u8, "Allocated body", alloc_body.bodyStr()));
+}
 
 pub const Response = struct {
     body: Body,
@@ -140,7 +162,7 @@ fn respondHealth(_: *Request) !Response {
 }
 
 fn respondGithubLoginParams(request: *Request) !Response {
-    const state = try request.app.newNonce();
+    const state = try request.app.nonce_map.newNonce();
     const body = try std.fmt.allocPrint(
         request.arena,
         "{{\"github_client_id\":\"" ++ github.GITHUB_CLIENT_ID ++ "\",\"state\":\"{s}\"}}",
@@ -220,6 +242,46 @@ pub const GrantType = enum {
     RefreshToken,
 };
 
+fn handleFetchedToken(request: *Request, parsed_token_or_error: anyerror!std.json.Parsed(github.AccessToken)) !Response {
+    if (parsed_token_or_error) |parsed_token| {
+        defer parsed_token.deinit();
+        const token = parsed_token.value;
+
+        const parsed_user = try github.fetch_user(request.arena, token.access_token);
+        defer parsed_user.deinit();
+
+        try request.app.token_cache.put(token.access_token, token.expires_in, parsed_user.value.login);
+
+        const body = try std.json.stringifyAlloc(request.arena, token, .{});
+
+        return Response{
+            .body = .{ .alloc = body },
+            .content_type = Mime.application_json,
+        };
+    } else |err| {
+        const err_body = Body{ .comp = "{\"error\":\"Failed to fetch token.\"}" };
+        const content_type = Mime.application_json;
+        switch (err) {
+            github.FetchTokenError.Unauthorized => return Response{
+                .body = err_body,
+                .content_type = content_type,
+                .status = .unauthorized,
+            },
+            github.FetchTokenError.Forbidden => return Response{
+                .body = err_body,
+                .content_type = content_type,
+                .status = .forbidden,
+            },
+            github.FetchTokenError.NotFound => return Response{
+                .body = err_body,
+                .content_type = content_type,
+                .status = .not_found,
+            },
+            else => return err,
+        }
+    }
+}
+
 fn respondGithubAccessToken(request: *Request) !Response {
     var query = try request.getQuery();
     defer query.deinit();
@@ -240,7 +302,7 @@ fn respondGithubAccessToken(request: *Request) !Response {
         };
     };
 
-    const state_valid = request.app.removeNonce(state);
+    const state_valid = request.app.nonce_map.removeNonce(state);
     if (!state_valid) {
         return Response{
             .body = Body{ .comp = "Invalid state query param" },
@@ -249,7 +311,7 @@ fn respondGithubAccessToken(request: *Request) !Response {
         };
     }
 
-    return try github.fetch_token(request.arena, .AuthorizationCode, code);
+    return handleFetchedToken(request, github.fetch_token(request.arena, .AuthorizationCode, code));
 }
 
 fn respondGithubRefreshToken(request: *Request) !Response {
@@ -264,7 +326,7 @@ fn respondGithubRefreshToken(request: *Request) !Response {
         };
     };
 
-    return try github.fetch_token(request.arena, .RefreshToken, refresh_token);
+    return handleFetchedToken(request, github.fetch_token(request.arena, .RefreshToken, refresh_token));
 }
 
 const ContactView = struct {
@@ -360,22 +422,13 @@ fn respondApiV0UserContacts(request: *Request) !Response {
     var query = try request.getQuery();
     defer query.deinit();
 
-    const parsed_gh_user_info = request.authenticateViaGithub() catch |err| {
-        switch (err) {
-            error.UnauthenticatedRequest => {
-                return try respondUnauthorized(request);
-            },
-            else => {
-                logErr("Unexpected error when authenticating user: {!}", .{err});
-                return err;
-            },
-        }
+    const user_id = request.authenticateViaToken() catch |err| switch (err) {
+        error.UnauthenticatedRequest => {
+            return try respondUnauthorized(request);
+        },
     };
-    defer parsed_gh_user_info.deinit();
 
-    const gh_user_info = parsed_gh_user_info.value;
-
-    var contact_list = model.ContactList.fromCsvFile(request.arena, gh_user_info.login, true) catch |err| {
+    var contact_list = model.ContactList.fromCsvFile(request.arena, user_id, true) catch |err| {
         return switch (err) {
             error.ContactListNotFound => respondNotFound(request),
             else => err,
@@ -529,8 +582,8 @@ test respondTestingError {
 
 fn respondUnauthorized(_: *Request) !Response {
     return Response{
-        .body = Body{ .comp = "Unauthorized" },
-        .content_type = Mime.text_plain,
+        .body = Body{ .comp = "{\"error\":\"Unauthorized\"}" },
+        .content_type = Mime.application_json,
         .status = .unauthorized,
     };
 }
@@ -822,7 +875,8 @@ pub const Request = struct {
         return response;
     }
 
-    pub fn authenticateViaGithub(self: *Request) !std.json.Parsed(github.User) {
+    // Currently only uses the token cache which is in-memory only. So tokens are "invalidated" if the server restarts.
+    pub fn authenticateViaToken(self: *Request) ![]const u8 {
         const tr = tracy.trace(@src());
         defer tr.end();
 
@@ -838,40 +892,49 @@ pub const Request = struct {
         }
 
         const bearer_prefix = "Bearer ".len;
-        const access_token = auth_header_value[bearer_prefix - 1 ..];
+        const access_token = auth_header_value[bearer_prefix..];
 
-        return github.fetch_user(self.arena, access_token);
+        if (self.app.token_cache.get(access_token)) |cached_token| {
+            if (cached_token.expired()) {
+                _ = self.app.token_cache.remove(cached_token.token);
+                return error.UnauthenticatedRequest;
+            } else {
+                return cached_token.user_id;
+            }
+        } else {
+            return error.UnauthenticatedRequest;
+        }
     }
 };
 
-const App = struct {
+const NonceMap = struct {
     alloc: std.mem.Allocator,
     // This should be a secure pseudo-random number generator.
     rand: std.Random,
     // Nonce list. Used for instance for respondGithubLoginParams.
     // The type does not matter, the once will be the key.
-    nonce_map: std.StringHashMap(bool),
+    map: std.StringHashMap(bool),
 
-    pub fn init(alloc: std.mem.Allocator) App {
-        var nonce_map = std.StringHashMap(bool).init(alloc);
-        _ = &nonce_map;
+    pub fn init(alloc: std.mem.Allocator) NonceMap {
+        var map = std.StringHashMap(bool).init(alloc);
+        _ = &map;
 
         return .{
             .alloc = alloc,
             .rand = std.crypto.random,
-            .nonce_map = nonce_map,
+            .map = map,
         };
     }
 
-    pub fn deinit(self: *App) void {
-        var entry_iter = self.nonce_map.iterator();
+    pub fn deinit(self: *NonceMap) void {
+        var entry_iter = self.map.iterator();
         while (entry_iter.next()) |entry| {
             self.alloc.free(entry.key_ptr.*);
         }
-        self.nonce_map.deinit();
+        self.map.deinit();
     }
 
-    pub fn newNonce(self: *App) ![]const u8 {
+    pub fn newNonce(self: *NonceMap) ![]const u8 {
         const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         const nonce_len = 32;
         var buf: [nonce_len]u8 = undefined;
@@ -882,34 +945,142 @@ const App = struct {
         const nonce = try self.alloc.alloc(u8, buf.len);
         errdefer self.alloc.free(nonce);
         @memcpy(nonce, &buf);
-        try self.nonce_map.put(nonce, true);
+        try self.map.put(nonce, true);
 
         return nonce;
     }
 
-    pub fn removeNonce(self: *App, nonce: []const u8) bool {
-        return if (self.nonce_map.getKey(nonce)) |key| blk: {
-            const deleted = self.nonce_map.remove(key);
+    pub fn removeNonce(self: *NonceMap, nonce: []const u8) bool {
+        return if (self.map.getKey(nonce)) |key| blk: {
+            const deleted = self.map.remove(key);
             self.alloc.free(key);
             break :blk deleted;
         } else false;
     }
 };
 
-test "App nonce" {
+test NonceMap {
     const alloc = std.testing.allocator;
 
-    var app = App.init(alloc);
-    defer app.deinit();
+    var nonce_map = NonceMap.init(alloc);
+    defer nonce_map.deinit();
 
-    const nonce = try app.newNonce();
+    const nonce = try nonce_map.newNonce();
     // nonce is freed as part of removeNonce.
-    // defer alloc.free(nonce);
     try std.testing.expectEqual(32, nonce.len);
 
-    const nonce_deleted = app.removeNonce(nonce);
+    const nonce_deleted = nonce_map.removeNonce(nonce);
     try std.testing.expectEqual(true, nonce_deleted);
 }
+
+// In-memory Access token cache. Validating 3rd party tokens by the third party
+// requires an external http request which can be slow.
+const TokenCache = struct {
+    alloc: std.mem.Allocator,
+    map: std.StringHashMap(AccessToken),
+
+    const AccessToken = struct {
+        token: []const u8,
+        user_id: []const u8,
+        issued_at: u32,
+        expires_in: u32,
+
+        pub fn expired(self: *const AccessToken) bool {
+            const now = std.time.timestamp();
+            const expires_at = self.issued_at + self.expires_in;
+
+            return expires_at < now;
+        }
+    };
+
+    pub fn init(alloc: std.mem.Allocator) TokenCache {
+        var map = std.StringHashMap(AccessToken).init(alloc);
+        _ = &map;
+
+        return .{
+            .alloc = alloc,
+            .map = map,
+        };
+    }
+
+    pub fn put(self: *TokenCache, access_token: []const u8, expires_in: u32, user_id: []const u8) !void {
+        const now_seconds = std.time.timestamp();
+        assert(now_seconds > 0);
+        const issued_at: u32 = @intCast(now_seconds);
+        const token_str = try self.alloc.alloc(u8, access_token.len);
+        errdefer self.alloc.free(token_str);
+        @memcpy(token_str, access_token);
+        const user_id_str = try self.alloc.alloc(u8, user_id.len);
+        errdefer self.alloc.free(user_id_str);
+        @memcpy(user_id_str, user_id);
+
+        const token = .{
+            .token = token_str,
+            .user_id = user_id_str,
+            .issued_at = issued_at,
+            .expires_in = expires_in,
+        };
+
+        try self.map.put(token_str, token);
+    }
+
+    pub fn remove(self: *TokenCache, access_token: []const u8) bool {
+        if (self.map.get(access_token)) |cached_token| {
+            self.alloc.free(cached_token.token);
+            self.alloc.free(cached_token.user_id);
+
+            return self.map.remove(access_token);
+        } else {
+            return false;
+        }
+    }
+
+    pub fn get(self: *TokenCache, access_token: []const u8) ?AccessToken {
+        return self.map.get(access_token);
+    }
+
+    pub fn deinit(self: *TokenCache) void {
+        var entry_iter = self.map.iterator();
+        while (entry_iter.next()) |entry| {
+            self.alloc.free(entry.key_ptr.*);
+            self.alloc.free(entry.value_ptr.*.user_id);
+        }
+        self.map.deinit();
+    }
+};
+
+test TokenCache {
+    const expect = std.testing.expect;
+
+    var token_cache = TokenCache.init(std.testing.allocator);
+    defer token_cache.deinit();
+
+    try token_cache.put("abcdef", 3600, "bob");
+    try expect(std.mem.eql(u8, "abcdef", token_cache.map.get("abcdef").?.token));
+    try expect(std.mem.eql(u8, "bob", token_cache.map.get("abcdef").?.user_id));
+}
+
+const App = struct {
+    alloc: std.mem.Allocator,
+    nonce_map: NonceMap,
+    token_cache: TokenCache,
+
+    pub fn init(alloc: std.mem.Allocator) App {
+        const nonce_map = NonceMap.init(alloc);
+        const token_cache = TokenCache.init(alloc);
+
+        return .{
+            .alloc = alloc,
+            .nonce_map = nonce_map,
+            .token_cache = token_cache,
+        };
+    }
+
+    pub fn deinit(self: *App) void {
+        self.nonce_map.deinit();
+        self.token_cache.deinit();
+    }
+};
 
 pub fn runServer() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
