@@ -9,6 +9,8 @@ const PUBLIC_PATH = "public/";
 const DEFAULT_URL_LENGTH = 2048;
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3000;
+const TIDY_PERIOD = 1 * std.time.s_per_hour;
+// const TIDY_PERIOD = 1 * std.time.s_per_min;
 
 const logger = std.log.scoped(.web);
 
@@ -162,7 +164,7 @@ fn respondHealth(_: *Request) !Response {
 }
 
 fn respondGithubLoginParams(request: *Request) !Response {
-    const state = try request.app.nonce_map.newNonce();
+    const state = try request.app.nonce_map.new();
     const body = try std.fmt.allocPrint(
         request.arena,
         "{{\"github_client_id\":\"" ++ github.GITHUB_CLIENT_ID ++ "\",\"state\":\"{s}\"}}",
@@ -302,7 +304,7 @@ fn respondGithubAccessToken(request: *Request) !Response {
         };
     };
 
-    const state_valid = request.app.nonce_map.removeNonce(state);
+    const state_valid = request.app.nonce_map.remove(state);
     if (!state_valid) {
         return Response{
             .body = Body{ .comp = "Invalid state query param" },
@@ -912,11 +914,11 @@ const NonceMap = struct {
     // This should be a secure pseudo-random number generator.
     rand: std.Random,
     // Nonce list. Used for instance for respondGithubLoginParams.
-    // The type does not matter, the once will be the key.
-    map: std.StringHashMap(bool),
+    // The int represents the created_at of the nonce in seconds.
+    map: std.StringHashMap(u32),
 
     pub fn init(alloc: std.mem.Allocator) NonceMap {
-        var map = std.StringHashMap(bool).init(alloc);
+        var map = std.StringHashMap(u32).init(alloc);
         _ = &map;
 
         return .{
@@ -934,7 +936,7 @@ const NonceMap = struct {
         self.map.deinit();
     }
 
-    pub fn newNonce(self: *NonceMap) ![]const u8 {
+    pub fn new(self: *NonceMap) ![]const u8 {
         const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         const nonce_len = 32;
         var buf: [nonce_len]u8 = undefined;
@@ -945,17 +947,36 @@ const NonceMap = struct {
         const nonce = try self.alloc.alloc(u8, buf.len);
         errdefer self.alloc.free(nonce);
         @memcpy(nonce, &buf);
-        try self.map.put(nonce, true);
+
+        const now_seconds = std.time.timestamp();
+        assert(now_seconds > 0);
+        try self.map.put(nonce, @intCast(now_seconds));
 
         return nonce;
     }
 
-    pub fn removeNonce(self: *NonceMap, nonce: []const u8) bool {
+    pub fn remove(self: *NonceMap, nonce: []const u8) bool {
         return if (self.map.getKey(nonce)) |key| blk: {
             const deleted = self.map.remove(key);
             self.alloc.free(key);
             break :blk deleted;
         } else false;
+    }
+
+    pub fn removeExpired(self: *NonceMap) u16 {
+        const now_seconds = std.time.timestamp();
+        var removed_count: u16 = 0;
+
+        var entry_iter = self.map.iterator();
+        while (entry_iter.next()) |entry| {
+            const nonce_duration = now_seconds - entry.value_ptr.*;
+            if (nonce_duration > 2 * std.time.s_per_min) {
+                removed_count += 1;
+                _ = self.remove(entry.key_ptr.*);
+            }
+        }
+
+        return removed_count;
     }
 };
 
@@ -965,11 +986,11 @@ test NonceMap {
     var nonce_map = NonceMap.init(alloc);
     defer nonce_map.deinit();
 
-    const nonce = try nonce_map.newNonce();
-    // nonce is freed as part of removeNonce.
+    const nonce = try nonce_map.new();
+    // nonce is freed as part of remove.
     try std.testing.expectEqual(32, nonce.len);
 
-    const nonce_deleted = nonce_map.removeNonce(nonce);
+    const nonce_deleted = nonce_map.remove(nonce);
     try std.testing.expectEqual(true, nonce_deleted);
 }
 
@@ -1035,6 +1056,20 @@ const TokenCache = struct {
         }
     }
 
+    pub fn removeExpired(self: *TokenCache) u16 {
+        var removed_count: u16 = 0;
+
+        var entry_iter = self.map.iterator();
+        while (entry_iter.next()) |entry| {
+            if (entry.value_ptr.*.expired()) {
+                removed_count += 1;
+                _ = self.remove(entry.key_ptr.*);
+            }
+        }
+
+        return removed_count;
+    }
+
     pub fn get(self: *TokenCache, access_token: []const u8) ?AccessToken {
         return self.map.get(access_token);
     }
@@ -1082,6 +1117,25 @@ const App = struct {
     }
 };
 
+pub fn tidyServer(app_ptr: *App) !void {
+    var tidied_at = std.time.timestamp();
+
+    while (true) {
+        const now = std.time.timestamp();
+        const seconds_since_previous_tidy = now - tidied_at;
+        if (seconds_since_previous_tidy > TIDY_PERIOD) {
+            logger.info("Tidying server...", .{});
+            const removed_token_count = app_ptr.token_cache.removeExpired();
+            logger.info("  Removed {d} expired tokens from cache.", .{removed_token_count});
+            const removed_nonce_count = app_ptr.nonce_map.removeExpired();
+            logger.info("  Removed {d} expired nonces.", .{removed_nonce_count});
+
+            tidied_at = now;
+        }
+        std.posix.nanosleep(60, 0);
+    }
+}
+
 pub fn runServer() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     // const allocator = std.heap.page_allocator
@@ -1094,8 +1148,9 @@ pub fn runServer() !void {
     var net_server = try address.listen(.{ .reuse_address = true });
     defer net_server.deinit();
 
-    var server_buffer: [DEFAULT_URL_LENGTH]u8 = undefined;
+    const tidy_thread = try std.Thread.spawn(.{}, tidyServer, .{&app});
 
+    var server_buffer: [DEFAULT_URL_LENGTH]u8 = undefined;
     while (true) {
         const connection = try net_server.accept();
         defer connection.stream.close();
@@ -1110,4 +1165,6 @@ pub fn runServer() !void {
         // const response = try request.respond();
         // if (std.mem.eql(u8, "Stop server", response.body.bodyStr())) break;
     }
+
+    tidy_thread.join();
 }
