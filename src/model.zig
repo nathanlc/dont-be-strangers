@@ -1,5 +1,6 @@
 const std = @import("std");
-const trace = @import("tracy.zig").trace;
+const tracy = @import("tracy.zig");
+const assert = std.debug.assert;
 
 const DB_DIR = "resource/db";
 const READ_FLAGS = std.fs.File.OpenFlags{ .mode = std.fs.File.OpenMode.read_only };
@@ -35,6 +36,11 @@ pub const Contact = struct {
             .frequency_days = undefined,
             .due_at = undefined,
         };
+    }
+
+    pub fn setDueAt(self: *Contact, contacted_at_seconds: u32) void {
+        const due_at: u32 = contacted_at_seconds + @as(u32, self.frequency_days) * std.time.s_per_day;
+        self.due_at = due_at;
     }
 
     pub fn fromCsvLine(alloc: std.mem.Allocator, reader: anytype) !Contact {
@@ -123,8 +129,8 @@ pub const ContactList = struct {
     }
 
     pub fn fromCsvFile(alloc: std.mem.Allocator, id: []const u8, has_headers: bool) !ContactList {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const tr = tracy.trace(@src());
+        defer tr.end();
 
         const db_path = try std.fmt.allocPrint(
             alloc,
@@ -175,13 +181,29 @@ test "Contact.fromCsvLine" {
     const csv_line = "1737401035,john doe,30,1737400035\n";
     var stream = std.io.fixedBufferStream(csv_line);
     const reader = stream.reader();
-    const contact = try Contact.fromCsvLine(std.testing.allocator, reader);
+
+    var contact = try Contact.fromCsvLine(std.testing.allocator, reader);
     defer contact.deinit();
 
     try expect(contact.created_at == 1737401035);
     try expect(std.mem.eql(u8, contact.full_name, "john doe"));
     try expect(contact.frequency_days == 30);
     try expect(contact.due_at == 1737400035);
+}
+
+test "Contact.setDueAt" {
+    const csv_line = "1737401035,john doe,30,1737400035\n";
+    var stream = std.io.fixedBufferStream(csv_line);
+    const reader = stream.reader();
+
+    var contact = try Contact.fromCsvLine(std.testing.allocator, reader);
+    defer contact.deinit();
+
+    const contacted_at_seconds = 1737400030;
+    contact.setDueAt(contacted_at_seconds);
+
+    const expected_due_at = contacted_at_seconds + 30 * std.time.s_per_day;
+    try std.testing.expectEqual(expected_due_at, contact.due_at);
 }
 
 test "ContactList.fromCsvReader" {
@@ -194,7 +216,7 @@ test "ContactList.fromCsvReader" {
     var contact_list = try ContactList.fromCsvReader(alloc, test_db.reader(), true);
     defer contact_list.deinit();
 
-    const first_contact = contact_list.contacts[0];
+    var first_contact = contact_list.contacts[0];
     const second_contact = contact_list.contacts[1];
 
     try expect(first_contact.created_at == 1737401035);
@@ -206,6 +228,11 @@ test "ContactList.fromCsvReader" {
     try expect(std.mem.eql(u8, second_contact.full_name, "jane doe"));
     try expect(second_contact.frequency_days == 14);
     try expect(second_contact.due_at == 1737400036);
+
+    const contacted_at_seconds = 1737400030;
+    first_contact.setDueAt(contacted_at_seconds);
+    const expected_due_at = contacted_at_seconds + 30 * std.time.s_per_day;
+    try std.testing.expectEqual(expected_due_at, first_contact.due_at);
 }
 
 test "ContactList.format" {
