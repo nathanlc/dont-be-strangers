@@ -40,6 +40,8 @@ class ContactList extends HTMLElement {
     const ul = this.root.querySelector('ul');
     ul.innerHTML = '';
 
+    contacts.sort((a, b) => a.due_at - b.due_at);
+
     contacts.forEach((contact) => {
       const contactItem = document.createElement('contact-item');
       contactItem.setAttribute('data-full-name', contact.full_name);

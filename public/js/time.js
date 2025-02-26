@@ -17,7 +17,7 @@ function nDaysDiff(timeInSeconds, from = null) {
   }
 
   // TODO: Test this both when date is after or passed.
-  return Math.ceil((from - timeInSeconds) / SECONDS_PER_DAY);
+  return Math.ceil((timeInSeconds - from) / SECONDS_PER_DAY);
 }
 
 export default {
