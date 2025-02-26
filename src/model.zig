@@ -93,6 +93,7 @@ pub const Contact = struct {
             \\  full_name: {s},
             \\  frequency_days: {d},
             \\  due_at: {d})
+            \\
         , .{
             self.created_at,
             self.full_name,
@@ -175,7 +176,7 @@ pub const ContactList = struct {
 
         var entry_iter = self.map.iterator();
         while (entry_iter.next()) |entry| {
-            try writer.print("{s}\n\n", .{entry.value_ptr.*});
+            try writer.print("{s}\n", .{entry.value_ptr.*});
         }
     }
 };

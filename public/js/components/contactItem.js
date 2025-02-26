@@ -1,5 +1,7 @@
 'use strict';
 
+import time from '../time.js';
+
 class ContactItem extends HTMLElement {
   static observedAttributes = [
     'data-full-name',
@@ -14,6 +16,7 @@ class ContactItem extends HTMLElement {
     ).content;
     this.root = this.attachShadow({ mode: "open" });
     this.root.appendChild(template.cloneNode(true));
+    this.nowSeconds = time.nowSeconds();
   }
 
   setFullName(fullName) {
@@ -21,11 +24,12 @@ class ContactItem extends HTMLElement {
   }
 
   setFrequencyDays(frequencyDays) {
-    this.root.querySelector('.frequency-days').textContent = `${frequencyDays}d`;
+    this.root.querySelector('.frequency-days').textContent = `(${frequencyDays}d 🕔)`;
   }
 
   setDueAt(dueAt) {
-    this.root.querySelector('.due-at').textContent = dueAt;
+    const dueAtText = `${time.nDaysDiff(dueAt, this.nowSeconds)}d`;
+    this.root.querySelector('.due-at').textContent = dueAtText;
   }
 
   attributeChangedCallback(name, _oldValue, newValue) {

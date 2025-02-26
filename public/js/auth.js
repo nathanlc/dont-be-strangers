@@ -2,13 +2,10 @@
 
 import api from './api.js';
 import routing from './routing.js';
+import time from './time.js';
 
 const storage = window.sessionStorage;
 const GITHUB_TOKEN = 'github_token';
-
-function now_seconds() {
-  return Math.floor(Date.now() / 1000);
-}
 
 function getGithubToken() {
   const githubTokenItem = storage.getItem(GITHUB_TOKEN);
@@ -21,7 +18,7 @@ function removeGithubToken() {
 
 function setGithubToken(githubToken) {
   // Github token doesn't include an "issued_at" field.
-  githubToken.issued_at = now_seconds();
+  githubToken.issued_at = time.nowSeconds();
   const githubTokenJson = JSON.stringify(githubToken);
   storage.setItem(GITHUB_TOKEN, githubTokenJson);
 }
@@ -61,7 +58,7 @@ function isTokenValid(githubToken) {
 }
 
 function isAccessTokenValid(githubToken) {
-  return isTokenValid(githubToken) && (githubToken.issued_at + githubToken.expires_in) > now_seconds();
+  return isTokenValid(githubToken) && (githubToken.issued_at + githubToken.expires_in) > time.nowSeconds();
 }
 
 function isAuthenticated() {
