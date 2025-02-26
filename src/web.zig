@@ -376,8 +376,9 @@ const ContactViewList = struct {
         defer tr.end();
 
         var contact_view_list = std.ArrayList(ContactView).init(alloc);
-        for (contact_list.contacts) |contact| {
-            const contact_view = ContactView.fromContact(contact);
+        var entry_iter = contact_list.map.iterator();
+        while (entry_iter.next()) |entry| {
+            const contact_view = ContactView.fromContact(entry.value_ptr.*);
             try contact_view_list.append(contact_view);
         }
 
@@ -409,7 +410,11 @@ test "ContactViewList.fromContactList" {
 
     const contact_view_list = try ContactViewList.fromContactList(alloc, contact_list);
     defer contact_view_list.deinit();
-    const contact_view = contact_view_list.contacts[1];
+    // contact_list uses a hash map internally. The order of the contact view list is
+    // not guaranteed. Below is a hacky way to find the contact view to test...
+    const first_contact_view = contact_view_list.contacts[0];
+    const second_contact_view = contact_view_list.contacts[1];
+    const contact_view = if (first_contact_view.created_at == 1737401036) first_contact_view else second_contact_view;
 
     try expectEqual(1737401036, contact_view.created_at);
     try expectEqual(14, contact_view.frequency_days);

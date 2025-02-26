@@ -74,7 +74,7 @@ pub const Contact = struct {
         return contact;
     }
 
-    pub fn deinit(self: Contact) void {
+    pub fn deinit(self: *Contact) void {
         self.alloc.free(self.full_name);
     }
 
@@ -104,27 +104,25 @@ pub const Contact = struct {
 
 pub const ContactList = struct {
     alloc: std.mem.Allocator,
-    contacts: []Contact,
+    map: std.AutoHashMap(u32, Contact),
 
-    pub fn fromCsvReader(alloc: std.mem.Allocator, reader: anytype, has_headers: bool) !ContactList {
-        var contact_array = std.ArrayList(Contact).init(alloc);
-        errdefer contact_array.deinit();
+    fn fromCsvReader(alloc: std.mem.Allocator, reader: anytype, has_headers: bool) !ContactList {
+        var map = std.AutoHashMap(u32, Contact).init(alloc);
+        errdefer map.deinit();
 
         // Skip headers
         if (has_headers) {
             try reader.skipUntilDelimiterOrEof('\n');
         }
         while (true) {
-            var contact = Contact.fromCsvLine(alloc, reader) catch {
-                break;
-            };
+            var contact = Contact.fromCsvLine(alloc, reader) catch break;
             errdefer contact.deinit();
-            try contact_array.append(contact);
+            try map.put(contact.created_at, contact);
         }
 
         return ContactList{
             .alloc = alloc,
-            .contacts = try contact_array.toOwnedSlice(),
+            .map = map,
         };
     }
 
@@ -150,11 +148,20 @@ pub const ContactList = struct {
         return try ContactList.fromCsvReader(alloc, db_file.reader(), has_headers);
     }
 
-    pub fn deinit(self: ContactList) void {
-        for (self.contacts) |contact| {
-            contact.deinit();
+    pub fn getContact(self: *ContactList, key: u32) ?Contact {
+        return self.map.get(key);
+    }
+
+    pub fn getContactPtr(self: *ContactList, key: u32) ?*Contact {
+        return if (self.map.getEntry(key)) |entry| entry.value_ptr else null;
+    }
+
+    pub fn deinit(self: *ContactList) void {
+        var entry_iter = self.map.iterator();
+        while (entry_iter.next()) |entry| {
+            entry.value_ptr.deinit();
         }
-        self.alloc.free(self.contacts);
+        self.map.deinit();
     }
 
     pub fn format(
@@ -166,11 +173,9 @@ pub const ContactList = struct {
         _ = fmt;
         _ = options;
 
-        for (self.contacts, 0..) |contact, i| {
-            try writer.print("{s}", .{contact});
-            if (i < (self.contacts.len - 1)) {
-                try writer.print("\n\n", .{});
-            }
+        var entry_iter = self.map.iterator();
+        while (entry_iter.next()) |entry| {
+            try writer.print("{s}\n\n", .{entry.value_ptr.*});
         }
     }
 };
@@ -208,6 +213,7 @@ test "Contact.setDueAt" {
 
 test "ContactList.fromCsvReader" {
     const expect = std.testing.expect;
+    const expectEqual = std.testing.expectEqual;
     const alloc = std.testing.allocator;
 
     const test_db = try std.fs.cwd().openFile("resource/db/test_db.csv", READ_FLAGS);
@@ -216,13 +222,14 @@ test "ContactList.fromCsvReader" {
     var contact_list = try ContactList.fromCsvReader(alloc, test_db.reader(), true);
     defer contact_list.deinit();
 
-    var first_contact = contact_list.contacts[0];
-    const second_contact = contact_list.contacts[1];
+    var first_contact_ptr = contact_list.getContactPtr(1737401035).?;
+    try expectEqual(*Contact, @TypeOf(first_contact_ptr));
+    const second_contact = contact_list.getContact(1737401036).?;
 
-    try expect(first_contact.created_at == 1737401035);
-    try expect(std.mem.eql(u8, first_contact.full_name, "john doe"));
-    try expect(first_contact.frequency_days == 30);
-    try expect(first_contact.due_at == 1737400035);
+    try expect(first_contact_ptr.created_at == 1737401035);
+    try expect(std.mem.eql(u8, first_contact_ptr.*.full_name, "john doe"));
+    try expect(first_contact_ptr.frequency_days == 30);
+    try expect(first_contact_ptr.due_at == 1737400035);
 
     try expect(second_contact.created_at == 1737401036);
     try expect(std.mem.eql(u8, second_contact.full_name, "jane doe"));
@@ -230,9 +237,10 @@ test "ContactList.fromCsvReader" {
     try expect(second_contact.due_at == 1737400036);
 
     const contacted_at_seconds = 1737400030;
-    first_contact.setDueAt(contacted_at_seconds);
+    first_contact_ptr.setDueAt(contacted_at_seconds);
     const expected_due_at = contacted_at_seconds + 30 * std.time.s_per_day;
-    try std.testing.expectEqual(expected_due_at, first_contact.due_at);
+    try expectEqual(expected_due_at, first_contact_ptr.due_at);
+    try expectEqual(first_contact_ptr.*, contact_list.getContact(1737401035).?);
 }
 
 test "ContactList.format" {
@@ -244,7 +252,9 @@ test "ContactList.format" {
     const contact_list_fmt_str = try std.fmt.allocPrint(alloc, "{s}", .{contact_list});
     defer alloc.free(contact_list_fmt_str);
 
-    try std.testing.expect(std.mem.eql(u8, contact_list_fmt_str,
+    // contact_list uses a hash map internally. The order of the contact list iteration is
+    // not guaranteed. Below is a hacky way to check the format.
+    const expected_either =
         \\Contact(
         \\  created_at: 1737401035,
         \\  full_name: john doe,
@@ -256,5 +266,24 @@ test "ContactList.format" {
         \\  full_name: jane doe,
         \\  frequency_days: 14,
         \\  due_at: 1737400036)
-    ));
+        \\
+        \\
+    ;
+    const expected_or =
+        \\Contact(
+        \\  created_at: 1737401036,
+        \\  full_name: jane doe,
+        \\  frequency_days: 14,
+        \\  due_at: 1737400036)
+        \\
+        \\Contact(
+        \\  created_at: 1737401035,
+        \\  full_name: john doe,
+        \\  frequency_days: 30,
+        \\  due_at: 1737400035)
+        \\
+        \\
+    ;
+    const expected_str = if (std.mem.eql(u8, expected_either, contact_list_fmt_str)) expected_either else expected_or;
+    try std.testing.expectEqualStrings(expected_str, contact_list_fmt_str);
 }
