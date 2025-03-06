@@ -6,6 +6,5 @@ import './components/internalLink.js';
 import './components/homePage.js';
 import './components/githubLogin.js';
 import './components/authGithubCallback.js';
-import './components/contactList.js';
-import './components/contactItem.js';
+import './components/contact.js';
 

@@ -1,6 +1,17 @@
 'use strict';
 
 import auth from './auth.js';
+import time from './time.js';
+
+/**
+ * @enum {string}
+ */
+const requestStatus = {
+  Idle: 'Idle',
+  Pending: 'Pending',
+  Success: 'Success',
+  Error: 'Error',
+};
 
 async function fetchGithubToken(code, state) {
   try {
@@ -31,9 +42,26 @@ async function fetchContactList() {
   });
 }
 
+/**
+ * @param {number} createdAt
+ * @returns {Promise<Response>}
+ */
+async function patchContactContactedAt(createdAt) {
+  const githubToken = auth.getGithubToken();
+  const accessToken = githubToken.access_token;
+
+  return fetch(`/api/v0/user/contacts/${createdAt}`, {
+    method: 'PATCH',
+    body: JSON.stringify({contacted_at: time.nowSeconds()}),
+    headers: {'Authorization': `Bearer ${accessToken}`},
+  });
+}
+
 export default {
+  requestStatus,
 	GITHUB_LOGIN_CALLBACK: '/auth/github/callback',
 	fetchGithubToken,
   refreshGithubToken,
 	fetchContactList,
+  patchContactContactedAt,
 };

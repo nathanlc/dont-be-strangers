@@ -143,16 +143,202 @@ pub const Response = struct {
     }
 };
 
-const Endpoint = struct {
-    path: []const u8,
-    method: std.http.Method,
-    respond: *const fn (*Request) anyerror!Response,
+const Router = struct {
+    alloc: std.mem.Allocator,
+    path_handles: std.ArrayList(u32),
 
-    // When Endpoint is created for static endpoints by getStaticEndpoints, the path
-    // has to be allocated.
-    // TODO: Should we create an EndpointList or a StaticEndpoint?
-    pub fn deinit(self: *const Endpoint, allocator: std.mem.Allocator) void {
-        allocator.free(self.path);
+    pub fn init(alloc: std.mem.Allocator) Router {
+        var path_handles = std.ArrayList(u32).init(alloc);
+        _ = &path_handles;
+
+        return .{
+            .alloc = alloc,
+            .path_handles = path_handles,
+        };
+    }
+
+    // The complexity of this parsing is not necessary for now.
+    // Just splitting path end self.path by '/' and compare the parts would have been simpler.
+    // TODO: compare performance of both.
+    // This method both checks the path of the endpoint AND populates self.path_handles.
+    fn pathMatches(self: *Router, path: []const u8, endpoint_path: []const u8) !bool {
+        const ParseStatus = enum {
+            InsideBracket,
+            OutsideBracket,
+        };
+
+        var path_stream = std.io.fixedBufferStream(path);
+        const path_reader = path_stream.reader();
+
+        var endpoint_path_index: u32 = 0;
+        var parse_status: ParseStatus = .OutsideBracket;
+        var path_var_index: u8 = 0;
+        var path_var_start_index: u32 = 0;
+        var i: u32 = 0;
+        while (path_reader.readByte()) |byte| : (i += 1) {
+            if (parse_status == .InsideBracket and byte == '/') {
+                endpoint_path_index += 2;
+                parse_status = .OutsideBracket;
+                try self.path_handles.append(path_var_start_index);
+                try self.path_handles.append(i);
+                path_var_index += 1;
+            }
+
+            if (endpoint_path_index >= endpoint_path.len) {
+                return false;
+            }
+            const endpoint_path_byte = endpoint_path[endpoint_path_index];
+
+            if (endpoint_path_byte == '{') {
+                assert(endpoint_path_index + 2 < endpoint_path.len);
+                assert(endpoint_path[endpoint_path_index + 1] == 's');
+                assert(endpoint_path[endpoint_path_index + 2] == '}');
+                parse_status = .InsideBracket;
+                path_var_start_index = i;
+                endpoint_path_index += 1;
+            }
+
+            if (parse_status == .OutsideBracket and endpoint_path_byte != byte) {
+                return false;
+            }
+
+            if (parse_status == .OutsideBracket) {
+                endpoint_path_index += 1;
+            }
+        } else |err| switch (err) {
+            // Nothing to do, just listing all the possible errors to be explicit.
+            error.EndOfStream => {
+                if (parse_status == .InsideBracket) {
+                    try self.path_handles.append(path_var_start_index);
+                    try self.path_handles.append(i);
+                }
+            },
+        }
+
+        // The "path" was read fully but there was more to endpoint_path.
+        if (parse_status == .OutsideBracket and endpoint_path_index < endpoint_path.len) {
+            return false;
+        }
+
+        return true;
+    }
+
+    pub fn dispatch(self: *Router, method: std.http.Method, path: []const u8) !DispatchResult {
+        for (endpoints) |endpoint| {
+            switch (endpoint) {
+                .endpoint_without_path_variables => |e| {
+                    if (e.method == method and std.mem.eql(u8, e.path, path)) {
+                        return DispatchResult{
+                            .endpoint = endpoint,
+                            .path_handles = try self.path_handles.toOwnedSlice(),
+                        };
+                    }
+                },
+                .endpoint_with_path_variables => |e| {
+                    if (e.method == method and try self.pathMatches(path, e.path)) {
+                        return DispatchResult{
+                            .endpoint = endpoint,
+                            .path_handles = try self.path_handles.toOwnedSlice(),
+                        };
+                    }
+                },
+                .endpoint_public_resource => unreachable,
+            }
+        }
+
+        if (.GET == method) {
+            const static_endpoints = try getStaticEndpoints(self.alloc);
+            defer {
+                for (static_endpoints) |endpoint| {
+                    endpoint.free(self.alloc);
+                }
+                self.alloc.free(static_endpoints);
+            }
+            for (static_endpoints) |endpoint| {
+                if (try self.pathMatches(path, endpoint.path)) {
+                    return DispatchResult{
+                        .endpoint = .{ .endpoint_public_resource = endpoint },
+                        .path_handles = try self.path_handles.toOwnedSlice(),
+                    };
+                }
+            }
+        }
+
+        return DispatchResult{
+            .endpoint = .{ .endpoint_without_path_variables = endpointNotFound },
+            .path_handles = try self.path_handles.toOwnedSlice(),
+        };
+    }
+};
+
+test Router {
+    const alloc = std.testing.allocator;
+    const expectEqualStrings = std.testing.expectEqualStrings;
+    const expectEqualSlices = std.testing.expectEqualSlices;
+
+    {
+        var router = Router.init(alloc);
+        const dispatch_result = try router.dispatch(.GET, "/health");
+        defer dispatch_result.free(alloc);
+        try expectEqualStrings("endpoint_without_path_variables", @tagName(dispatch_result.endpoint));
+        try expectEqualStrings("/health", dispatch_result.endpoint.getPath());
+    }
+
+    {
+        var router = Router.init(alloc);
+        const dispatch_result = try router.dispatch(.PATCH, "/api/v0/user/contacts/some_contact_id");
+        defer dispatch_result.free(alloc);
+        try expectEqualStrings("endpoint_with_path_variables", @tagName(dispatch_result.endpoint));
+        try expectEqualStrings("/api/v0/user/contacts/{s}", dispatch_result.endpoint.getPath());
+        try expectEqualSlices(u32, &.{ 22, 37 }, dispatch_result.path_handles);
+    }
+}
+
+const DispatchResult = struct {
+    endpoint: Endpoint,
+    // Path handles is an owned slice returned by Router.dispatch.
+    path_handles: []u32,
+
+    pub fn free(self: *const DispatchResult, alloc: std.mem.Allocator) void {
+        alloc.free(self.path_handles);
+    }
+};
+
+const EndpointTag = enum {
+    endpoint_without_path_variables,
+    endpoint_with_path_variables,
+    endpoint_public_resource,
+};
+const Endpoint = union(EndpointTag) {
+    endpoint_without_path_variables: EndpointWithoutPathVariables,
+    endpoint_with_path_variables: EndpointWithPathVariables,
+    endpoint_public_resource: EndpointPublicResource,
+
+    pub fn getPath(self: Endpoint) []const u8 {
+        return switch (self) {
+            .endpoint_without_path_variables => |e| e.path,
+            .endpoint_with_path_variables => |e| e.path,
+            .endpoint_public_resource => |e| e.path,
+        };
+    }
+};
+
+const EndpointWithoutPathVariables = struct {
+    method: std.http.Method,
+    path: []const u8,
+    respond: *const fn (*Request) anyerror!Response,
+};
+const EndpointWithPathVariables = struct {
+    method: std.http.Method,
+    path: []const u8,
+    respond: *const fn (*Request, []u32) anyerror!Response,
+};
+const EndpointPublicResource = struct {
+    // method must be .GET.
+    path: []const u8,
+
+    pub fn free(self: *const EndpointPublicResource, alloc: std.mem.Allocator) void {
+        alloc.free(self.path);
     }
 };
 
@@ -426,20 +612,15 @@ fn respondApiV0UserContacts(request: *Request) !Response {
     const tr = tracy.trace(@src());
     defer tr.end();
 
-    var query = try request.getQuery();
-    defer query.deinit();
-
     const user_id = request.authenticateViaToken() catch |err| switch (err) {
         error.UnauthenticatedRequest => {
             return try respondUnauthorized(request);
         },
     };
 
-    var contact_list = model.ContactList.fromCsvFile(request.arena, user_id, true) catch |err| {
-        return switch (err) {
-            error.ContactListNotFound => respondNotFound(request),
-            else => err,
-        };
+    var contact_list = model.ContactList.fromCsvFile(request.arena, user_id, true) catch |err| return switch (err) {
+        error.ContactListNotFound => respondNotFound(request),
+        else => err,
     };
     defer contact_list.deinit();
 
@@ -456,6 +637,38 @@ fn respondApiV0UserContacts(request: *Request) !Response {
         .body = Body{ .alloc = body },
         .content_type = Mime.text_plain,
     };
+}
+
+fn respondApiV0UserContactsPatch(request: *Request, path_handles: []u32) !Response {
+    assert(2 == path_handles.len);
+
+    const contact_id_str: []const u8 = request.getPath()[path_handles[0]..path_handles[1]];
+    const contact_id = try std.fmt.parseInt(u32, contact_id_str, 10);
+
+    const user_id = request.authenticateViaToken() catch |err| switch (err) {
+        error.UnauthenticatedRequest => {
+            return try respondUnauthorized(request);
+        },
+    };
+
+    const use_headers = true;
+    var contact_list = try model.ContactList.fromCsvFile(request.arena, user_id, use_headers);
+    defer contact_list.deinit();
+
+    std.debug.print("contact_id_str: '{s}', contact_id: '{d}'\n", .{ contact_id_str, contact_id });
+    std.debug.print("Contact list:\n{csv}\n", .{contact_list});
+
+    return if (contact_list.getContactPtr(contact_id)) |contact_ptr| blk: {
+        contact_ptr.setDueAt(null);
+        try contact_list.toCsvFile(user_id, use_headers);
+        const contact_view = ContactView.fromContact(contact_ptr.*);
+        const body = try std.json.stringifyAlloc(request.arena, contact_view, .{});
+
+        break :blk Response{
+            .body = Body{ .alloc = body },
+            .content_type = Mime.text_plain,
+        };
+    } else respondNotFound(request);
 }
 
 fn eqlU8(str1: []const u8, str2: []const u8) bool {
@@ -595,6 +808,13 @@ fn respondUnauthorized(_: *Request) !Response {
     };
 }
 
+fn respondOk(_: *Request) !Response {
+    return Response{
+        .body = Body{ .comp = "200 OK" },
+        .content_type = Mime.text_plain,
+    };
+}
+
 fn respondNotFound(_: *Request) !Response {
     return Response{
         .body = Body{ .comp = "404 NOT FOUND" },
@@ -669,14 +889,14 @@ test respondNotFound {
     try testResponse("GET", "/not_existing_path", "404 NOT FOUND", Mime.text_plain, .not_found);
 }
 
-const endpointNotFound = Endpoint{
+const endpointNotFound = EndpointWithoutPathVariables{
     // Path and method don't matter in this case.
     .path = "/404",
     .method = std.http.Method.GET,
     .respond = &respondNotFound,
 };
 
-const endpointInternalServerError = Endpoint{
+const endpointInternalServerError = EndpointWithoutPathVariables{
     // Path and method don't matter in this case.
     .path = "/500",
     .method = std.http.Method.GET,
@@ -686,21 +906,22 @@ const endpointInternalServerError = Endpoint{
 const endpoints = [_]Endpoint{
     // Endpoint{ .path = "/stop_server", .method = std.http.Method.GET, .respond = &respondStopServer },
     // Test routes
-    Endpoint{ .path = "/testing/error", .method = std.http.Method.GET, .respond = &respondTestingError },
-    Endpoint{ .path = "/health", .method = std.http.Method.GET, .respond = &respondHealth },
+    .{ .endpoint_without_path_variables = .{ .path = "/testing/error", .method = std.http.Method.GET, .respond = &respondTestingError } },
+    .{ .endpoint_without_path_variables = .{ .path = "/health", .method = std.http.Method.GET, .respond = &respondHealth } },
     // Web routes
-    Endpoint{ .path = "/", .method = std.http.Method.GET, .respond = &respondIndex },
-    Endpoint{ .path = "/user/contacts", .method = std.http.Method.GET, .respond = &respondIndex },
-    Endpoint{ .path = "/auth/github/login_params", .method = std.http.Method.GET, .respond = &respondGithubLoginParams },
-    Endpoint{ .path = "/auth/github/callback", .method = std.http.Method.GET, .respond = &respondGithubCallback },
-    Endpoint{ .path = "/auth/github/access_token", .method = std.http.Method.GET, .respond = &respondGithubAccessToken },
-    Endpoint{ .path = "/auth/github/refresh_token", .method = std.http.Method.GET, .respond = &respondGithubRefreshToken },
+    .{ .endpoint_without_path_variables = .{ .path = "/", .method = std.http.Method.GET, .respond = &respondIndex } },
+    .{ .endpoint_without_path_variables = .{ .path = "/user/contacts", .method = std.http.Method.GET, .respond = &respondIndex } },
+    .{ .endpoint_without_path_variables = .{ .path = "/auth/github/login_params", .method = std.http.Method.GET, .respond = &respondGithubLoginParams } },
+    .{ .endpoint_without_path_variables = .{ .path = "/auth/github/callback", .method = std.http.Method.GET, .respond = &respondGithubCallback } },
+    .{ .endpoint_without_path_variables = .{ .path = "/auth/github/access_token", .method = std.http.Method.GET, .respond = &respondGithubAccessToken } },
+    .{ .endpoint_without_path_variables = .{ .path = "/auth/github/refresh_token", .method = std.http.Method.GET, .respond = &respondGithubRefreshToken } },
     // API routes
-    Endpoint{ .path = "/api/v0/user/contacts", .method = std.http.Method.GET, .respond = &respondApiV0UserContacts },
+    .{ .endpoint_without_path_variables = .{ .path = "/api/v0/user/contacts", .method = std.http.Method.GET, .respond = &respondApiV0UserContacts } },
+    .{ .endpoint_with_path_variables = .{ .path = "/api/v0/user/contacts/{s}", .method = std.http.Method.PATCH, .respond = &respondApiV0UserContactsPatch } },
 };
 
-fn getStaticEndpoints(allocator: std.mem.Allocator) ![]const Endpoint {
-    var endpoints_list = std.ArrayList(Endpoint).init(allocator);
+fn getStaticEndpoints(allocator: std.mem.Allocator) ![]const EndpointPublicResource {
+    var endpoints_list = std.ArrayList(EndpointPublicResource).init(allocator);
     defer endpoints_list.deinit();
 
     var public_dir = try std.fs.cwd().openDir(PUBLIC_PATH, .{ .iterate = true });
@@ -719,11 +940,7 @@ fn getStaticEndpoints(allocator: std.mem.Allocator) ![]const Endpoint {
         errdefer allocator.free(path);
         path[0] = '/';
         @memcpy(path[1..], entry.path);
-        const endpoint = Endpoint{
-            .path = path,
-            .method = std.http.Method.GET,
-            .respond = &respondServeFile,
-        };
+        const endpoint = EndpointPublicResource{ .path = path };
         try endpoints_list.append(endpoint);
     }
 
@@ -736,7 +953,7 @@ test getStaticEndpoints {
     const static_endpoints = try getStaticEndpoints(allocator);
     defer {
         for (static_endpoints) |endpoint| {
-            endpoint.deinit(allocator);
+            endpoint.free(allocator);
         }
         allocator.free(static_endpoints);
     }
@@ -750,9 +967,9 @@ test getStaticEndpoints {
     try std.testing.expect(contains_test_text);
 }
 
-fn route(allocator: std.mem.Allocator, path: []const u8, method: std.http.Method) !Endpoint {
+fn dispatchRoute(allocator: std.mem.Allocator, path: []const u8, method: std.http.Method) !Endpoint {
     for (endpoints) |endpoint| {
-        if (endpoint.method == method and std.mem.eql(u8, endpoint.path, path)) {
+        if (endpoint.matches(method, path)) {
             return endpoint;
         }
     }
@@ -766,7 +983,7 @@ fn route(allocator: std.mem.Allocator, path: []const u8, method: std.http.Method
         allocator.free(static_endpoints);
     }
     for (static_endpoints) |endpoint| {
-        if (endpoint.method == method and std.mem.eql(u8, endpoint.path, path)) {
+        if (endpoint.matches(method, path)) {
             return endpoint;
         }
     }
@@ -847,20 +1064,28 @@ pub const Request = struct {
         });
     }
 
+    fn handleRespondError(request: *Request, err: anyerror) Response {
+        logErr("Error while generating response: {!}", .{err});
+        const internal_server_error_response = respondInternalServerError(request) catch unreachable;
+        return internal_server_error_response;
+    }
+
     pub fn respond(self: *Request) !Response {
         const tr = tracy.trace(@src());
         defer tr.end();
 
         try self.log();
 
-        const matching_endpoint = route(self.arena, self.uri.path.percent_encoded, self.getMethod()) catch |err| blk: {
+        var router = Router.init(self.arena);
+        const dispatch_result = router.dispatch(self.getMethod(), self.getPath()) catch |err| blk: {
             logErr("Error while routing: {!}", .{err});
-            break :blk endpointInternalServerError;
+            break :blk DispatchResult{ .endpoint = .{ .endpoint_without_path_variables = endpointInternalServerError }, .path_handles = &.{} };
         };
-        const response = matching_endpoint.respond(self) catch |err| blk: {
-            logErr("Error while generating response: {!}", .{err});
-            const internal_server_error_response = respondInternalServerError(self) catch unreachable;
-            break :blk internal_server_error_response;
+        defer dispatch_result.free(self.arena);
+        const response = switch (dispatch_result.endpoint) {
+            .endpoint_without_path_variables => |e| e.respond(self) catch |err| handleRespondError(self, err),
+            .endpoint_with_path_variables => |e| e.respond(self, dispatch_result.path_handles) catch |err| handleRespondError(self, err),
+            .endpoint_public_resource => |_| respondServeFile(self) catch |err| handleRespondError(self, err),
         };
         defer response.body.free(self.arena);
 

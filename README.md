@@ -4,7 +4,7 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
-- Add way to set that a contact has been contacted.
+- Move Router.dispatch + path_handles to Request + a method to get path variables 1, 2, ...
 - Add reminders.
 - Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.
 - Refresh token when need be.

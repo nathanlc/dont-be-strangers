@@ -1,3 +1,4 @@
-created_at,full_name,frequency_days,contacted_at
-1737401035,john doe,30,1737400035
+created_at,full_name,frequency_days,due_at
 1737401036,jane doe,14,1737400036
+1737401035,john doe,30,1737400035
+
