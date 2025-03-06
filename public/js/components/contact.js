@@ -68,7 +68,6 @@ class ContactItem extends HTMLElement {
     this.root = this.attachShadow({ mode: "open" });
     this.root.appendChild(template.cloneNode(true));
 
-    this.nowSeconds = time.nowSeconds();
     this.root.querySelector('button.contacted-action')
       .addEventListener('click', (_) => this.handleContactedAction());
   }
@@ -82,7 +81,7 @@ class ContactItem extends HTMLElement {
   }
 
   setDueAt(dueAt) {
-    const dueAtText = `${time.nDaysDiff(dueAt, this.nowSeconds)}d`;
+    const dueAtText = `${time.nDaysDiff(dueAt, time.nowSeconds())}d`;
     this.root.querySelector('.due-at').textContent = dueAtText;
   }
 
