@@ -53,7 +53,10 @@ async function patchContactContactedAt(createdAt) {
   return fetch(`/api/v0/user/contacts/${createdAt}`, {
     method: 'PATCH',
     body: JSON.stringify({contacted_at: time.nowSeconds()}),
-    headers: {'Authorization': `Bearer ${accessToken}`},
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
   });
 }
 
