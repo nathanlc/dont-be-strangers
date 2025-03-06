@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>Don't be strangers</title>
-    <!--<link rel="stylesheet" href="./style.css">-->
+    <!--<link rel="stylesheet" href="/style.css">-->
     <link rel="icon" type="image/png" href="/images/icons/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/images/icons/favicon.svg" />
     <link rel="shortcut icon" href="/images/icons/favicon.ico" />
@@ -35,10 +35,19 @@
     </template>
 
     <template id="template-contact-item">
+      <style>
+        .display-none {
+          display: none;
+        }
+      </style>
       <li>
         <span class="full-name"></span>
         <span class="frequency-days"></span>
         <span class="due-at"></span>
+        <button class="contacted-action">✔️</button>
+        <span class="contacted-status contacted-pending display-none">⏳</span>
+        <span class="contacted-status contacted-success display-none">✅</span>
+        <span class="contacted-status contacted-error display-none">🚫</span>
       </li>
     </template>
 
