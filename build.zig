@@ -31,11 +31,16 @@ pub fn build(b: *std.Build) void {
     // b.installArtifact(lib);
 
     const exe = b.addExecutable(.{
-        .name = "dont-be-strangers",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .name = "dontbestrangers",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
+
+    // See https://ziglang.org/download/0.14.0/release-notes.html#Build-System
+    const no_bin = b.option(bool, "no-bin", "skip emitting binary") orelse false;
 
     const github_client_id = b.option([]const u8, "github-client-id", "Github app registered client ID");
     const github_client_secret = b.option([]const u8, "github-client-secret", "Github app registered client secret");
@@ -83,7 +88,11 @@ pub fn build(b: *std.Build) void {
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
-    b.installArtifact(exe);
+    if (no_bin) {
+        b.getInstallStep().dependOn(&exe.step);
+    } else {
+        b.installArtifact(exe);
+    }
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish
@@ -128,9 +137,11 @@ pub fn build(b: *std.Build) void {
 
         const exe_unit_tests = b.addTest(.{
             // .root_source_file = b.path("src/main.zig"),
-            .root_source_file = b.path("src/test.zig"),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/test.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
         });
 
         const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);

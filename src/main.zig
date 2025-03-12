@@ -3,7 +3,7 @@ const cli = @import("cli.zig");
 const web = @import("web.zig");
 
 pub fn main() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    var general_purpose_allocator = std.heap.DebugAllocator(.{}).init;
     var arena = std.heap.ArenaAllocator.init(general_purpose_allocator.allocator());
     defer arena.deinit();
     const allocator = arena.allocator();

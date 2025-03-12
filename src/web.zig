@@ -540,7 +540,7 @@ test "ContactView.fromContact" {
     contact.created_at = 1737401035;
     var full_name = std.ArrayList(u8).init(alloc);
     try full_name.appendSlice("john doe");
-    contact.full_name = full_name.items;
+    contact.full_name = try full_name.toOwnedSlice();
     contact.frequency_days = 30;
     contact.due_at = 1737400035;
 
@@ -1236,7 +1236,7 @@ const TokenCache = struct {
         errdefer self.alloc.free(user_id_str);
         @memcpy(user_id_str, user_id);
 
-        const token = .{
+        const token: AccessToken = .{
             .token = token_str,
             .user_id = user_id_str,
             .issued_at = issued_at,
@@ -1338,7 +1338,7 @@ pub fn tidyServer(app_ptr: *App) !void {
 }
 
 pub fn runServer() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    var general_purpose_allocator = std.heap.DebugAllocator(.{}).init;
     // const allocator = std.heap.page_allocator
     const allocator = general_purpose_allocator.allocator();
 

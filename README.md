@@ -4,6 +4,7 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
+- Compile for the Raspberry Pi and see if it can run there.
 - Add reminders.
 - Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.
 - Refresh token when need be.
@@ -19,7 +20,18 @@ Service to get reminded to stay in touch with people.
 - Add json logger, with req id, res status, ...
 - Rate limiting?
 
-## Run the server for development
+## Development
+### Run build with file system watching
+```
+zig build -Dgithub-client-id="${GITHUB_CLIENT_ID}" -Dgithub-client-secret="${GITHUB_CLIENT_SECRET}" -Dno-bin -fincremental --watch
+```
+
+### Run tests automatically
+```shell
+ls src/* | entr -cc -s 'zig test src/test.zig'
+```
+
+### Run the server
 ```shell
 zig build -Dgithub-client-id="${GITHUB_CLIENT_ID}" -Dgithub-client-secret="${GITHUB_CLIENT_SECRET}" run -- server
 ```
