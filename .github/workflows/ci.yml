@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: Check build
+    name: Check build & Test
     runs-on: ubuntu-latest
     container:
       image: alpine
@@ -18,16 +18,5 @@ jobs:
           version: 0.14.0
       - name: Build
         run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    container:
-      image: alpine
-    steps:
-      - uses: actions/checkout@v4
-      - uses: mlugg/setup-zig@v1
-        with:
-          version: 0.14.0
       - name: Test
         run: zig test src/test.zig
