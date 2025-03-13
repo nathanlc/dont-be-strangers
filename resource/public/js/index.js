@@ -7,4 +7,3 @@ import './components/homePage.js';
 import './components/githubLogin.js';
 import './components/authGithubCallback.js';
 import './components/contact.js';
-

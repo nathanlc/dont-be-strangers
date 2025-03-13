@@ -4,6 +4,7 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
+- Double check zig 0.14 deprecation.
 - Compile for the Raspberry Pi and see if it can run there.
 - Add reminders.
 - Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.

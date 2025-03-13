@@ -30,14 +30,41 @@ pub fn build(b: *std.Build) void {
     // // running `zig build`).
     // b.installArtifact(lib);
 
+    const Zon = struct {
+        name: @TypeOf(.enum_literal),
+        fingerprint: u64,
+        version: []const u8,
+        minimum_zig_version: []const u8,
+        dependencies: struct {},
+        paths: []const []const u8,
+    };
+
+    const zon: Zon = @import("build.zig.zon");
+    const exe_name = @tagName(zon.name);
+
     const exe = b.addExecutable(.{
-        .name = "dontbestrangers",
+        .name = exe_name,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
+
+    const wf = b.addWriteFiles();
+    const exe_dir = b.fmt("{s}/", .{exe_name});
+    const exe_path = b.fmt("{s}{s}", .{ exe_dir, exe.out_filename });
+    _ = wf.addCopyFile(exe.getEmittedBin(), exe_path);
+    _ = wf.addCopyDirectory(.{ .cwd_relative = "resource" }, exe_name, .{});
+
+    const tar = b.addSystemCommand(&.{ "tar", "czf" });
+    tar.setCwd(wf.getDirectory());
+    const tar_out_name = b.fmt("{s}.tar.gz", .{exe_name});
+    const out_file = tar.addOutputFileArg(tar_out_name);
+    tar.addArgs(&.{exe_dir});
+
+    const install_tar = b.addInstallFileWithDir(out_file, .prefix, tar_out_name);
+    b.getInstallStep().dependOn(&install_tar.step);
 
     // See https://ziglang.org/download/0.14.0/release-notes.html#Build-System
     const no_bin = b.option(bool, "no-bin", "skip emitting binary") orelse false;

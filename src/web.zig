@@ -5,7 +5,7 @@ const github = @import("github.zig");
 const tracy = @import("tracy.zig");
 const assert = std.debug.assert;
 
-const PUBLIC_PATH = "public/";
+const PUBLIC_PATH = "resource/public/";
 const DEFAULT_URL_LENGTH = 2048;
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3000;
