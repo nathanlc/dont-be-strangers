@@ -7,6 +7,7 @@ on:
 
 jobs:
   build:
+    name: Check build
     runs-on: ubuntu-latest
     container:
       image: alpine
@@ -18,6 +19,7 @@ jobs:
         run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
 
   test:
+    name: Test
     runs-on: ubuntu-latest
     container:
       image: alpine
