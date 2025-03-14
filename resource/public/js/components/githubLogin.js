@@ -1,5 +1,7 @@
 'use strict';
 
+import api from '../api.js';
+
 class GithubLogin extends HTMLElement {
   constructor() {
     super();
@@ -20,9 +22,9 @@ class GithubLogin extends HTMLElement {
         const params = await this.fetchLoginParams();
         const client_id = params.github_client_id;
         const state = params.state;
-        // This will redirect the user to Github which will then redirect back to
-        // /auth/github/callback.
-        window.location.href = `https://github.com/login/oauth/authorize?client_id=${client_id}&state=${state}`;
+        const redirect_uri = encodeURIComponent(window.location.origin + api.GITHUB_LOGIN_CALLBACK);
+        // This will redirect the user to Github which will then redirect back to /auth/github/callback.
+        window.location.href = `https://github.com/login/oauth/authorize?client_id=${client_id}&state=${state}&redirect_uri=${redirect_uri}`;
       } catch (err) {
         console.error(err);
       }

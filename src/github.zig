@@ -22,6 +22,24 @@ pub const FetchTokenError = error{
     NotFound,
 };
 
+const GrantType = enum {
+    authorization_code,
+    refresh_token,
+};
+
+pub const AuthorizationCodePayload = struct {
+    code: []const u8,
+};
+
+pub const RefreshTokenPayload = struct {
+    refresh_token: []const u8,
+};
+
+pub const FetchTokenPayload = union(GrantType) {
+    authorization_code: AuthorizationCodePayload,
+    refresh_token: RefreshTokenPayload,
+};
+
 pub const AccessToken = struct {
     access_token: []u8,
     expires_in: u32,
@@ -31,7 +49,7 @@ pub const AccessToken = struct {
     token_type: []u8,
 };
 
-pub fn fetch_token(alloc: std.mem.Allocator, grant_type: web.GrantType, resource: []const u8) !std.json.Parsed(AccessToken) {
+pub fn fetch_token(alloc: std.mem.Allocator, payload: FetchTokenPayload) !std.json.Parsed(AccessToken) {
     var client = std.http.Client{ .allocator = alloc };
     defer client.deinit();
 
@@ -41,16 +59,16 @@ pub fn fetch_token(alloc: std.mem.Allocator, grant_type: web.GrantType, resource
     defer request.deinit();
 
     // TODO: Replace allocPrint with bufPrint when known len?
-    const body = switch (grant_type) {
-        .AuthorizationCode => try std.fmt.allocPrint(
+    const body = switch (payload) {
+        .authorization_code => |p| try std.fmt.allocPrint(
             alloc,
             "{{\"client_id\":\"" ++ GITHUB_CLIENT_ID ++ "\",\"client_secret\":\"" ++ GITHUB_CLIENT_SECRET ++ "\",\"code\":\"{s}\"}}",
-            .{resource},
+            .{p.code},
         ),
-        .RefreshToken => try std.fmt.allocPrint(
+        .refresh_token => |p| try std.fmt.allocPrint(
             alloc,
             "{{\"client_id\":\"" ++ GITHUB_CLIENT_ID ++ "\",\"client_secret\":\"" ++ GITHUB_CLIENT_SECRET ++ "\",\"grant_type\":\"refresh_token\",\"refresh_token\": \"{s}\"}}",
-            .{resource},
+            .{p.refresh_token},
         ),
     };
 

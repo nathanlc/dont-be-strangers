@@ -26,6 +26,7 @@ pub fn runScratch(_: std.mem.Allocator) !void {}
 
 const Query = struct {
     allocator: std.mem.Allocator,
+    // The query is percent encoded.
     str: []const u8,
     map: std.StringHashMap([]const u8),
 
@@ -424,8 +425,8 @@ fn respondGithubCallback(request: *Request) !Response {
 }
 
 pub const GrantType = enum {
-    AuthorizationCode,
-    RefreshToken,
+    authorization_code,
+    refresh_token,
 };
 
 fn handleFetchedToken(request: *Request, parsed_token_or_error: anyerror!std.json.Parsed(github.AccessToken)) !Response {
@@ -497,7 +498,9 @@ fn respondGithubAccessToken(request: *Request) !Response {
         };
     }
 
-    return handleFetchedToken(request, github.fetch_token(request.arena, .AuthorizationCode, code));
+    const payload: github.FetchTokenPayload = .{ .authorization_code = .{ .code = code } };
+
+    return handleFetchedToken(request, github.fetch_token(request.arena, payload));
 }
 
 fn respondGithubRefreshToken(request: *Request) !Response {
@@ -512,7 +515,11 @@ fn respondGithubRefreshToken(request: *Request) !Response {
         };
     };
 
-    return handleFetchedToken(request, github.fetch_token(request.arena, .RefreshToken, refresh_token));
+    const payload: github.FetchTokenPayload = .{ .refresh_token = .{
+        .refresh_token = refresh_token,
+    } };
+
+    return handleFetchedToken(request, github.fetch_token(request.arena, payload));
 }
 
 const ContactView = struct {
