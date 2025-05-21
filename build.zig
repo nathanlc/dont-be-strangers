@@ -10,6 +10,16 @@ const Zon = struct {
     paths: []const []const u8,
 };
 
+fn sourceSqlite(module: *std.Build.Module) void {
+    // module.link_libc = true;
+    module.addIncludePath(.{ .cwd_relative = "lib/c/sqlite" });
+    module.addCSourceFile(.{
+        .file = .{ .cwd_relative = "lib/c/sqlite/sqlite3.c" },
+        // .flags = &.{"-std=c99", "-g", "-g0"},
+        .flags = &.{"-std=c99"},
+    });
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -25,6 +35,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    sourceSqlite(exe.root_module);
+
+    // Add resource directory to the dist.
     const wf = b.addWriteFiles();
     const exe_path = b.fmt("{s}/{s}", .{ exe_name, exe.out_filename });
     const exe_dir = b.fmt("{s}/", .{exe_name});
@@ -116,6 +129,8 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
+
+        sourceSqlite(exe_unit_tests.root_module);
 
         const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 

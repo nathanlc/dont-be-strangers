@@ -49,7 +49,7 @@ pub const AccessToken = struct {
     token_type: []u8,
 };
 
-pub fn fetch_token(alloc: std.mem.Allocator, payload: FetchTokenPayload) !std.json.Parsed(AccessToken) {
+pub fn fetchToken(alloc: std.mem.Allocator, payload: FetchTokenPayload) !std.json.Parsed(AccessToken) {
     var client = std.http.Client{ .allocator = alloc };
     defer client.deinit();
 
@@ -110,11 +110,12 @@ pub fn fetch_token(alloc: std.mem.Allocator, payload: FetchTokenPayload) !std.js
 }
 
 pub const User = struct {
+    id: i64,
     login: []const u8,
 };
 
 // This is used to validate the access token as well.
-pub fn fetch_user(alloc: std.mem.Allocator, access_token: []const u8) !std.json.Parsed(User) {
+pub fn fetchUser(alloc: std.mem.Allocator, access_token: []const u8) !std.json.Parsed(User) {
     const tr = tracy.trace(@src());
     defer tr.end();
 

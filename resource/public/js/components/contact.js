@@ -43,7 +43,7 @@ class ContactList extends HTMLElement {
 
     contacts.forEach((contact) => {
       const contactItem = document.createElement('contact-item');
-      contactItem.setAttribute('data-created-at', contact.created_at);
+      contactItem.setAttribute('data-id', contact.id);
       contactItem.setAttribute('data-full-name', contact.full_name);
       contactItem.setAttribute('data-frequency-days', contact.frequency_days);
       contactItem.setAttribute('data-due-at', contact.due_at);
@@ -54,7 +54,7 @@ class ContactList extends HTMLElement {
 
 class ContactItem extends HTMLElement {
   static observedAttributes = [
-    'data-created-at',
+    'data-id',
     'data-full-name',
     'data-frequency-days',
     'data-due-at',
@@ -98,11 +98,11 @@ class ContactItem extends HTMLElement {
   }
 
   async handleContactedAction() {
-    const createdAt = this.getAttribute('data-created-at');
+    const id = this.getAttribute('data-id');
 
     this.setContactedRequestStatus(api.requestStatus.Pending);
     try {
-      const response = await api.patchContactContactedAt(createdAt);
+      const response = await api.patchContactContactedAt(id);
       if (response.ok) {
         this.setContactedRequestStatus(api.requestStatus.Success);
         const updatedContact = await response.json();

@@ -40,19 +40,7 @@ const ActionTag = enum {
 };
 
 const ContactsOptions = struct {
-    alloc: std.mem.Allocator,
-    id: []const u8,
-
-    pub fn init(alloc: std.mem.Allocator, id: []const u8) !ContactsOptions {
-        const value = try alloc.alloc(u8, id.len);
-        @memcpy(value, id);
-
-        return ContactsOptions{ .alloc = alloc, .id = value };
-    }
-
-    pub fn deinit(self: ContactsOptions) void {
-        self.alloc.free(self.id);
-    }
+    id: i64,
 };
 
 pub const Action = union(ActionTag) {
@@ -61,14 +49,7 @@ pub const Action = union(ActionTag) {
     contacts: ContactsOptions,
     server: void,
 
-    pub fn deinit(self: Action) void {
-        switch (self) {
-            .contacts => |options| options.deinit(),
-            else => {},
-        }
-    }
-
-    pub fn fromArgs(alloc: std.mem.Allocator, arg_iterator: anytype) !Action {
+    pub fn fromArgs(arg_iterator: anytype) !Action {
         if (arg_iterator.next() == null) {
             return error.MissingAction;
         }
@@ -84,11 +65,11 @@ pub const Action = union(ActionTag) {
             .help => ActionTag.help,
             .scratch => ActionTag.scratch,
             .server => ActionTag.server,
-            .contacts => try Action.fromContactsArgs(alloc, &arg_iterator),
+            .contacts => try Action.fromContactsArgs(&arg_iterator),
         };
     }
 
-    fn fromContactsArgs(alloc: std.mem.Allocator, arg_iterator_ptr: anytype) !Action {
+    fn fromContactsArgs(arg_iterator_ptr: anytype) !Action {
         const option = if (arg_iterator_ptr.*.next()) |arg| arg else {
             return error.MissingOption;
         };
@@ -110,7 +91,7 @@ pub const Action = union(ActionTag) {
                 return error.InvalidOption;
             }
 
-            const contact_options = try ContactsOptions.init(alloc, option_value);
+            const contact_options = ContactsOptions{ .id = try std.fmt.parseInt(i64, option_value, 10) };
             return Action{ .contacts = contact_options };
         } else {
             logErr("Invalid option {s}, expected: --key=value", .{option});
@@ -131,22 +112,15 @@ pub fn runHelp() !void {
     try stdout.print("dont-be-strangers help blablabla\n", .{});
 }
 
-pub fn runContactsList(allocator: std.mem.Allocator, id: []const u8) !void {
+pub fn runContactsList(alloc: std.mem.Allocator, user_id: i64) !void {
     const stdout = std.io.getStdOut().writer();
 
-    var contact_list = model.ContactList.fromCsvFile(allocator, id, true) catch |err| {
-        switch (err) {
-            error.ContactListNotFound => {
-                try stdout.print("No contact list found for ID: {s}\n", .{id});
-                std.process.exit(1);
-                return err;
-            },
-            else => return err,
-        }
-    };
+    const sqlite = try model.Sqlite.open(model.Sqlite.Env.prod);
+    defer sqlite.deinit();
+    var contact_list = try sqlite.selectContactsByUser(alloc, user_id);
     defer contact_list.deinit();
 
-    try stdout.print("ID: {s}\n\n", .{id});
+    try stdout.print("User ID: {d}\n\n", .{user_id});
     try contact_list.format("{s}", .{}, stdout);
     try stdout.print("\n", .{});
 }
@@ -156,15 +130,11 @@ test "Action.fromArgs with contacts action" {
 
     var arg_iterator = try std.process.ArgIteratorGeneral(.{}).init(
         allocator,
-        // resource/db/123.csv is supposed to exist.
         "executable contacts --id=abc123",
     );
     defer arg_iterator.deinit();
 
-    const action = try Action.fromArgs(allocator, &arg_iterator);
-    defer action.deinit();
-
-    try std.testing.expect(action == Action.contacts);
+    try std.testing.expectError(error.InvalidCharacter, Action.fromArgs(&arg_iterator));
 }
 
 test "Action.fromArgs with contacts missing option" {
@@ -176,7 +146,7 @@ test "Action.fromArgs with contacts missing option" {
     );
     defer arg_iterator.deinit();
 
-    try std.testing.expectError(error.MissingOption, Action.fromArgs(allocator, &arg_iterator));
+    try std.testing.expectError(error.MissingOption, Action.fromArgs(&arg_iterator));
 }
 
 test "Action.fromArgs with contacts incorrect option format" {
@@ -188,7 +158,7 @@ test "Action.fromArgs with contacts incorrect option format" {
     );
     defer arg_iterator.deinit();
 
-    try std.testing.expectError(error.InvalidOption, Action.fromArgs(allocator, &arg_iterator));
+    try std.testing.expectError(error.InvalidOption, Action.fromArgs(&arg_iterator));
 }
 
 test "Action.fromArgs with contacts invalid option" {
@@ -200,7 +170,7 @@ test "Action.fromArgs with contacts invalid option" {
     );
     defer arg_iterator.deinit();
 
-    try std.testing.expectError(error.InvalidOption, Action.fromArgs(allocator, &arg_iterator));
+    try std.testing.expectError(error.InvalidOption, Action.fromArgs(&arg_iterator));
 }
 
 test "Action.fromArgs with missing action" {
@@ -212,7 +182,7 @@ test "Action.fromArgs with missing action" {
     );
     defer arg_iterator.deinit();
 
-    try std.testing.expectError(error.MissingAction, Action.fromArgs(allocator, &arg_iterator));
+    try std.testing.expectError(error.MissingAction, Action.fromArgs(&arg_iterator));
 }
 
 test "Action.fromArgs with invalid action" {
@@ -224,5 +194,5 @@ test "Action.fromArgs with invalid action" {
     );
     defer arg_iterator.deinit();
 
-    try std.testing.expectError(error.InvalidAction, Action.fromArgs(allocator, &arg_iterator));
+    try std.testing.expectError(error.InvalidAction, Action.fromArgs(&arg_iterator));
 }
