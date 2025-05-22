@@ -47,7 +47,7 @@ const Query = struct {
                 errdefer allocator.free(key);
                 @memcpy(key, item_key.?);
                 const value = try allocator.alloc(u8, item_value.?.len);
-                errdefer allocator.free(key);
+                errdefer allocator.free(value);
                 @memcpy(value, item_value.?);
                 try map.put(key, value);
             } else {
@@ -441,9 +441,8 @@ fn handleFetchedToken(request: *Request, parsed_token_or_error: anyerror!std.jso
         defer parsed_user.deinit();
 
         const external_user_id = try std.fmt.allocPrint(request.arena, "{d}", .{parsed_user.value.id});
-        errdefer request.arena.free(external_user_id);
-        const authenticator = model.Authenticator.github;
         defer request.arena.free(external_user_id);
+        const authenticator = model.Authenticator.github;
         try request.app.sqlite.insertOrIgnoreUser(request.arena, external_user_id, parsed_user.value.login, authenticator);
         const user = try request.app.sqlite.selectUserByExternalId(request.arena, external_user_id, authenticator);
         defer user.deinit();
