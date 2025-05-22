@@ -1,7 +1,8 @@
 .DS_Store
 .env
 .envrc
-resource/db
+resource/db/*
+!resource/db/.gitkeep
 src/scratch.zig
 .zig-cache/
 zig-out/
