@@ -4,7 +4,6 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
-- Handle SQLITE_BUSY and other possible sqlite errors.
 - Add created_at + updated_at for every model.
 - Add possibility to import contacts.
 - Add reminders.

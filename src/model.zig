@@ -131,6 +131,8 @@ pub const Sqlite = struct {
             break :blk stmt.?;
         };
 
+        _ = c.sqlite3_busy_timeout(db, 3000);
+
         return .{
             .db = db,
             .select_contacts_by_user_stmt = select_contacts_by_user_stmt,
