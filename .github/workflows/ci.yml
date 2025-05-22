@@ -14,8 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.0
       - name: Build
         run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
       - name: Test

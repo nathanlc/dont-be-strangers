@@ -159,7 +159,7 @@ pub const Sqlite = struct {
         _ = c.sqlite3_close(self.db);
     }
 
-    pub fn execute(self: Sqlite, sql: [*:0]const u8) !void {
+    fn execute(self: Sqlite, sql: [*:0]const u8) !void {
         var err_msg: [*c]u8 = undefined;
         const exec_result = c.sqlite3_exec(self.db, sql, null, null, &err_msg);
         if (exec_result != c.SQLITE_OK) {
