@@ -4,6 +4,7 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
+- Add possibility to import contacts.
 - Add reminders.
 - Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.
 - Refresh token when need be.
@@ -16,6 +17,7 @@ Service to get reminded to stay in touch with people.
 - Better testing of respond methods. Pass struct containing a func to testResponse? Whhere the function does the expects?
 - Refactor server routing nicer. Have a Router with "register" function (or sth) before starting server, and a "dispatch" function.
 - Handle multiple requests.
+- Ziggify sqlite.
 - Add json logger, with req id, res status, ...
 - Rate limiting?
 
@@ -30,7 +32,7 @@ zig build -Dgithub-client-id="${GITHUB_CLIENT_ID}" -Dgithub-client-secret="${GIT
 
 ### Run tests automatically
 ```shell
-ls src/* | entr -cc -s 'zig test src/test.zig'
+ls src/* | entr -cc -s 'zig test -I lib/c/sqlite -lsqlite3 src/test.zig'
 ```
 
 ### Run the server

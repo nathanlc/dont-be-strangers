@@ -13,10 +13,8 @@ jobs:
       image: alpine
     steps:
       - uses: actions/checkout@v4
-      - uses: mlugg/setup-zig@v1
-        with:
-          version: 0.14.0
+      - uses: mlugg/setup-zig@v2
       - name: Build
         run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
       - name: Test
-        run: zig test src/test.zig
+        run: zig test -I lib/c/sqlite -lsqlite3 src/test.zig
