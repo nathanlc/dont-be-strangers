@@ -627,68 +627,72 @@ pub const Contact = struct {
     }
 };
 
-// test "Contact.setDueAt" {
-//     const csv_line = "1737401035,john doe,30,1737400035\n";
-//     var stream = std.io.fixedBufferStream(csv_line);
-//     const reader = stream.reader();
-//
-//     var contact = try Contact.fromCsvLine(std.testing.allocator, reader);
-//     defer contact.deinit();
-//
-//     const contacted_at_seconds = 1737400030;
-//     contact.setDueAt(contacted_at_seconds);
-//
-//     const expected_due_at = contacted_at_seconds + 30 * std.time.s_per_day;
-//     try std.testing.expectEqual(expected_due_at, contact.due_at);
-// }
+test "Contact.setDueAt" {
+    const alloc = std.testing.allocator;
 
-// test Contact {
-//     const alloc = std.testing.allocator;
-//     const expectEqual = std.testing.expectEqual;
-//     const expectEqualStrings = std.testing.expectEqualStrings;
-//
-//     const csv_line = "1737401035,john doe,30,1737400035\n";
-//     var stream = std.io.fixedBufferStream(csv_line);
-//     const reader = stream.reader();
-//
-//     var contact = try Contact.fromCsvLine(alloc, reader);
-//     defer contact.deinit();
-//
-//     {
-//         try expectEqualStrings("john doe", contact.full_name);
-//         try expectEqual(30, contact.frequency_days);
-//         try expectEqual(1737400035, contact.due_at);
-//     }
-//
-//     {
-//         const to_csv_line = try std.fmt.allocPrint(alloc, "{s}", .{contact});
-//         defer alloc.free(to_csv_line);
-//         try expectEqualStrings(
-//             \\Contact(
-//             \\  full_name: john doe,
-//             \\  frequency_days: 30,
-//             \\  due_at: 1737400035)
-//             \\
-//         , to_csv_line);
-//     }
-//
-//     {
-//         const to_csv_line = try std.fmt.allocPrint(alloc, "{csv}", .{contact});
-//         defer alloc.free(to_csv_line);
-//         try expectEqualStrings("1737401035,john doe,30,1737400035\n", to_csv_line);
-//     }
-//
-//     {
-//         const contacted_at_seconds = 1737400030;
-//         contact.setDueAt(contacted_at_seconds);
-//         const expected_due_at = contacted_at_seconds + 30 * std.time.s_per_day;
-//         try expectEqual(expected_due_at, contact.due_at);
-//
-//         const to_csv_line = try std.fmt.allocPrint(alloc, "{csv}", .{contact});
-//         defer alloc.free(to_csv_line);
-//         try expectEqualStrings("1737401035,john doe,30,1739992030\n", to_csv_line);
-//     }
-// }
+    var contact = Contact.init(alloc);
+    defer contact.deinit();
+    contact.full_name = try std.fmt.allocPrint(alloc, "{s}", .{"john doe"});
+    contact.frequency_days = 30;
+    contact.due_at = 1737400035;
+
+    const contacted_at_seconds = 1737400030;
+    contact.setDueAt(contacted_at_seconds);
+
+    const expected_due_at = contacted_at_seconds + 30 * std.time.s_per_day;
+    try std.testing.expectEqual(expected_due_at, contact.due_at);
+}
+
+test Contact {
+    const alloc = std.testing.allocator;
+    const expectEqual = std.testing.expectEqual;
+    const expectEqualStrings = std.testing.expectEqualStrings;
+
+    var contact = Contact.init(alloc);
+    defer contact.deinit();
+    contact.id = 100;
+    contact.user_id = 42;
+    contact.full_name = try std.fmt.allocPrint(alloc, "{s}", .{"john doe"});
+    contact.frequency_days = 30;
+    contact.due_at = 1737400035;
+
+    {
+        try expectEqualStrings("john doe", contact.full_name);
+        try expectEqual(30, contact.frequency_days);
+        try expectEqual(1737400035, contact.due_at);
+    }
+
+    {
+        const formatted_contact = try std.fmt.allocPrint(alloc, "{s}", .{contact});
+        defer alloc.free(formatted_contact);
+        try expectEqualStrings(
+            \\Contact(
+            \\  id: 100,
+            \\  user_id: 42,
+            \\  full_name: john doe,
+            \\  frequency_days: 30,
+            \\  due_at: 1737400035)
+            \\
+        , formatted_contact);
+    }
+
+    {
+        const to_csv_line = try std.fmt.allocPrint(alloc, "{csv}", .{contact});
+        defer alloc.free(to_csv_line);
+        try expectEqualStrings("100,42,john doe,30,1737400035\n", to_csv_line);
+    }
+
+    {
+        const contacted_at_seconds = 1737400030;
+        contact.setDueAt(contacted_at_seconds);
+        const expected_due_at = contacted_at_seconds + 30 * std.time.s_per_day;
+        try expectEqual(expected_due_at, contact.due_at);
+
+        const to_csv_line = try std.fmt.allocPrint(alloc, "{csv}", .{contact});
+        defer alloc.free(to_csv_line);
+        try expectEqualStrings("100,42,john doe,30,1739992030\n", to_csv_line);
+    }
+}
 
 pub const ContactList = struct {
     map: std.AutoArrayHashMap(i64, Contact),
@@ -744,106 +748,3 @@ pub const ContactList = struct {
         }
     }
 };
-
-// test ContactList {
-//     const expectEqual = std.testing.expectEqual;
-//     const expectEqualStrings = std.testing.expectEqualStrings;
-//     const alloc = std.testing.allocator;
-//
-//     const test_db = try std.fs.cwd().openFile("resource/db/test_db.csv", READ_FLAGS);
-//     defer test_db.close();
-//
-//     var contact_list = try ContactList.fromCsvReader(alloc, test_db.reader(), true);
-//     defer contact_list.deinit();
-//
-//     {
-//         const first_contact = contact_list.getContact(1737401035).?;
-//         const second_contact = contact_list.getContact(1737401036).?;
-//
-//         try expectEqualStrings("john doe", first_contact.full_name);
-//         try expectEqual(30, first_contact.frequency_days);
-//         try expectEqual(1737400035, first_contact.due_at);
-//
-//         try expectEqualStrings("jane doe", second_contact.full_name);
-//         try expectEqual(14, second_contact.frequency_days);
-//         try expectEqual(1737400036, second_contact.due_at);
-//     }
-//
-//     // Test format
-//     {
-//         const contact_list_fmt_str = try std.fmt.allocPrint(alloc, "{s}", .{contact_list});
-//         defer alloc.free(contact_list_fmt_str);
-//
-//         // contact_list uses a hash map internally. The order of the contact list iteration is
-//         // not guaranteed. Below is a hacky way to check the format.
-//         const expected_either =
-//             \\Contact(
-//             \\  full_name: john doe,
-//             \\  frequency_days: 30,
-//             \\  due_at: 1737400035)
-//             \\
-//             \\Contact(
-//             \\  full_name: jane doe,
-//             \\  frequency_days: 14,
-//             \\  due_at: 1737400036)
-//             \\
-//             \\
-//         ;
-//         const expected_or =
-//             \\Contact(
-//             \\  full_name: jane doe,
-//             \\  frequency_days: 14,
-//             \\  due_at: 1737400036)
-//             \\
-//             \\Contact(
-//             \\  full_name: john doe,
-//             \\  frequency_days: 30,
-//             \\  due_at: 1737400035)
-//             \\
-//             \\
-//         ;
-//         const expected_str = if (std.mem.eql(u8, expected_either, contact_list_fmt_str)) expected_either else expected_or;
-//         try std.testing.expectEqualStrings(expected_str, contact_list_fmt_str);
-//     }
-//
-//     // Test format csv
-//     {
-//         const contact_list_fmt_str = try std.fmt.allocPrint(alloc, "{csv}", .{contact_list});
-//         defer alloc.free(contact_list_fmt_str);
-//
-//         // contact_list uses a hash map internally. The order of the contact list iteration is
-//         // not guaranteed. Below is a hacky way to check the format.
-//         const expected_either =
-//             \\1737401035,john doe,30,1737400035
-//             \\1737401036,jane doe,14,1737400036
-//             \\
-//         ;
-//         const expected_or =
-//             \\1737401036,jane doe,14,1737400036
-//             \\1737401035,john doe,30,1737400035
-//             \\
-//         ;
-//         const expected_str = if (std.mem.eql(u8, expected_either, contact_list_fmt_str)) expected_either else expected_or;
-//         try std.testing.expectEqualStrings(expected_str, contact_list_fmt_str);
-//     }
-//
-//     // Test updating a contact.
-//     {
-//         var first_contact_ptr = contact_list.getContactPtr(1737401035).?;
-//         try expectEqual(*Contact, @TypeOf(first_contact_ptr));
-//
-//         const original_due_at = first_contact_ptr.due_at;
-//         const contacted_at_seconds = 1737400030;
-//         first_contact_ptr.setDueAt(contacted_at_seconds);
-//         const expected_due_at = contacted_at_seconds + 30 * std.time.s_per_day;
-//         try expectEqual(expected_due_at, first_contact_ptr.due_at);
-//         try expectEqual(first_contact_ptr.*, contact_list.getContact(1737401035).?);
-//
-//         try contact_list.toCsvFile("test_db", true);
-//
-//         // Restore contact list.
-//         first_contact_ptr.due_at = original_due_at; // 1737400035
-//         try expectEqual(1737400035, first_contact_ptr.due_at);
-//         try contact_list.toCsvFile("test_db", true);
-//     }
-// }
