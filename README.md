@@ -4,7 +4,6 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
-- Add created_at + updated_at for every model.
 - Add possibility to import contacts.
 - Add reminders.
 - Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.

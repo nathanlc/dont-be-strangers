@@ -63,7 +63,6 @@ pub const Sqlite = struct {
                 \\ SELECT
                 \\     id,
                 \\     user_id,
-                \\     created_at,
                 \\     full_name,
                 \\     frequency_days,
                 \\     due_at
@@ -194,7 +193,6 @@ pub const Sqlite = struct {
             \\ CREATE TABLE IF NOT EXISTS contacts (
             \\   id INTEGER NOT NULL,
             \\   user_id INTEGER NOT NULL,
-            \\   created_at INTEGER NOT NULL,
             \\   full_name TEXT NOT NULL,
             \\   frequency_days INTEGER NOT NULL,
             \\   due_at INTEGER NOT NULL,
@@ -236,7 +234,6 @@ pub const Sqlite = struct {
             \\ CREATE TABLE IF NOT EXISTS contacts (
             \\   id INTEGER NOT NULL,
             \\   user_id INTEGER NOT NULL,
-            \\   created_at INTEGER NOT NULL,
             \\   full_name TEXT NOT NULL,
             \\   frequency_days INTEGER NOT NULL,
             \\   due_at INTEGER NOT NULL,
@@ -253,10 +250,10 @@ pub const Sqlite = struct {
             \\     SELECT id as user_id FROM users WHERE external_id = '1' AND authenticator = 'github'
             \\ )
             \\ INSERT INTO contacts
-            \\     (user_id, created_at, full_name, frequency_days, due_at)
-            \\ SELECT user_id, 1, 'Bob', 1, 86401 FROM user
+            \\     (user_id, full_name, frequency_days, due_at)
+            \\ SELECT user_id, 'Bob', 1, 86401 FROM user
             \\ UNION ALL
-            \\ SELECT user_id, 86400, 'Timmy', 14, 120000 FROM user;
+            \\ SELECT user_id, 'Timmy', 14, 120000 FROM user;
         ;
 
         const self = Sqlite{ .db = db_ptr.? };
@@ -280,11 +277,10 @@ pub const Sqlite = struct {
         while (step_result == c.SQLITE_ROW) : (step_result = c.sqlite3_step(self.select_contacts_by_user_stmt)) {
             const id = c.sqlite3_column_int64(self.select_contacts_by_user_stmt, 0);
             const user_id = c.sqlite3_column_int64(self.select_contacts_by_user_stmt, 1);
-            const created_at = c.sqlite3_column_int64(self.select_contacts_by_user_stmt, 2);
-            const full_name = c.sqlite3_column_text(self.select_contacts_by_user_stmt, 3);
-            const full_name_len: usize = @intCast(c.sqlite3_column_bytes(self.select_contacts_by_user_stmt, 3));
-            const frequency_days = c.sqlite3_column_int(self.select_contacts_by_user_stmt, 4);
-            const due_at = c.sqlite3_column_int64(self.select_contacts_by_user_stmt, 5);
+            const full_name = c.sqlite3_column_text(self.select_contacts_by_user_stmt, 2);
+            const full_name_len: usize = @intCast(c.sqlite3_column_bytes(self.select_contacts_by_user_stmt, 2));
+            const frequency_days = c.sqlite3_column_int(self.select_contacts_by_user_stmt, 3);
+            const due_at = c.sqlite3_column_int64(self.select_contacts_by_user_stmt, 4);
 
             const full_name_buf = try alloc.alloc(u8, full_name_len);
             errdefer alloc.free(full_name_buf);
@@ -295,7 +291,6 @@ pub const Sqlite = struct {
             var contact = Contact.init(alloc);
             contact.id = @as(i64, id);
             contact.user_id = @as(i64, user_id);
-            contact.created_at = @intCast(created_at);
             contact.full_name = full_name_buf;
             contact.frequency_days = @intCast(frequency_days);
             contact.due_at = @intCast(due_at);
@@ -465,13 +460,11 @@ test Sqlite {
         const second_contact = contact_iter.next().?.value_ptr.*;
 
         try expect(null != first_contact.id);
-        try expectEqual(1, first_contact.created_at);
         try expectEqualStrings("Bob", first_contact.full_name);
         try expectEqual(1, first_contact.frequency_days);
         try expectEqual(86401, first_contact.due_at);
 
         try expect(null != second_contact.id);
-        try expectEqual(86400, second_contact.created_at);
         try expectEqualStrings("Timmy", second_contact.full_name);
         try expectEqual(14, second_contact.frequency_days);
         try expectEqual(120000, second_contact.due_at);
@@ -566,19 +559,15 @@ pub const Contact = struct {
     alloc: std.mem.Allocator,
     id: ?i64,
     user_id: i64,
-    created_at: u32,
     full_name: []u8,
     frequency_days: u16,
     due_at: u32,
-
-    pub const header_line = "created_at,full_name,frequency_days,due_at";
 
     pub fn init(alloc: std.mem.Allocator) Contact {
         return .{
             .alloc = alloc,
             .id = null,
             .user_id = undefined,
-            .created_at = undefined,
             .full_name = undefined,
             .frequency_days = undefined,
             .due_at = undefined,
@@ -610,10 +599,9 @@ pub const Contact = struct {
         _ = options;
 
         if (std.mem.eql(u8, "csv", fmt)) {
-            try writer.print("{?},{d},{d},{s},{d},{d}\n", .{
+            try writer.print("{?},{d},{s},{d},{d}\n", .{
                 self.id,
                 self.user_id,
-                self.created_at,
                 self.full_name,
                 self.frequency_days,
                 self.due_at,
@@ -623,7 +611,6 @@ pub const Contact = struct {
                 \\Contact(
                 \\  id: {?},
                 \\  user_id: {d},
-                \\  created_at: {d},
                 \\  full_name: {s},
                 \\  frequency_days: {d},
                 \\  due_at: {d})
@@ -631,7 +618,6 @@ pub const Contact = struct {
             , .{
                 self.id,
                 self.user_id,
-                self.created_at,
                 self.full_name,
                 self.frequency_days,
                 self.due_at,
@@ -668,7 +654,6 @@ pub const Contact = struct {
 //     defer contact.deinit();
 //
 //     {
-//         try expectEqual(1737401035, contact.created_at);
 //         try expectEqualStrings("john doe", contact.full_name);
 //         try expectEqual(30, contact.frequency_days);
 //         try expectEqual(1737400035, contact.due_at);
@@ -679,7 +664,6 @@ pub const Contact = struct {
 //         defer alloc.free(to_csv_line);
 //         try expectEqualStrings(
 //             \\Contact(
-//             \\  created_at: 1737401035,
 //             \\  full_name: john doe,
 //             \\  frequency_days: 30,
 //             \\  due_at: 1737400035)
@@ -775,12 +759,10 @@ pub const ContactList = struct {
 //         const first_contact = contact_list.getContact(1737401035).?;
 //         const second_contact = contact_list.getContact(1737401036).?;
 //
-//         try expectEqual(1737401035, first_contact.created_at);
 //         try expectEqualStrings("john doe", first_contact.full_name);
 //         try expectEqual(30, first_contact.frequency_days);
 //         try expectEqual(1737400035, first_contact.due_at);
 //
-//         try expectEqual(1737401036, second_contact.created_at);
 //         try expectEqualStrings("jane doe", second_contact.full_name);
 //         try expectEqual(14, second_contact.frequency_days);
 //         try expectEqual(1737400036, second_contact.due_at);
@@ -795,13 +777,11 @@ pub const ContactList = struct {
 //         // not guaranteed. Below is a hacky way to check the format.
 //         const expected_either =
 //             \\Contact(
-//             \\  created_at: 1737401035,
 //             \\  full_name: john doe,
 //             \\  frequency_days: 30,
 //             \\  due_at: 1737400035)
 //             \\
 //             \\Contact(
-//             \\  created_at: 1737401036,
 //             \\  full_name: jane doe,
 //             \\  frequency_days: 14,
 //             \\  due_at: 1737400036)
@@ -810,13 +790,11 @@ pub const ContactList = struct {
 //         ;
 //         const expected_or =
 //             \\Contact(
-//             \\  created_at: 1737401036,
 //             \\  full_name: jane doe,
 //             \\  frequency_days: 14,
 //             \\  due_at: 1737400036)
 //             \\
 //             \\Contact(
-//             \\  created_at: 1737401035,
 //             \\  full_name: john doe,
 //             \\  frequency_days: 30,
 //             \\  due_at: 1737400035)

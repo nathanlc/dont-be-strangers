@@ -555,7 +555,6 @@ test "ContactView.fromContact" {
     var contact = model.Contact.init(alloc);
     defer contact.deinit();
     contact.id = 1;
-    contact.created_at = 1737401035;
     var full_name = std.ArrayList(u8).init(alloc);
     try full_name.appendSlice("john doe");
     contact.full_name = try full_name.toOwnedSlice();
@@ -616,9 +615,7 @@ const ContactViewList = struct {
 //     // not guaranteed. Below is a hacky way to find the contact view to test...
 //     const first_contact_view = contact_view_list.contacts[0];
 //     const second_contact_view = contact_view_list.contacts[1];
-//     const contact_view = if (first_contact_view.created_at == 1737401036) first_contact_view else second_contact_view;
 //
-//     try expectEqual(1737401036, contact_view.created_at);
 //     try expectEqual(14, contact_view.frequency_days);
 //     try std.testing.expectEqualStrings("jane doe", contact_view.full_name);
 //     try expectEqual(1737400036, contact_view.due_at);
