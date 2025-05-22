@@ -16,8 +16,7 @@ fn logErr(comptime fmt: []const u8, args: anytype) void {
     if (!builtin.is_test) {
         logger.err(fmt, args);
     } else {
-        // logger.info(fmt, args);
-        logger.err(fmt, args);
+        logger.info(fmt, args);
     }
 }
 
