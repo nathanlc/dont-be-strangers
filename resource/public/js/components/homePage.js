@@ -14,7 +14,12 @@ class HomePage extends HTMLElement {
       routing.push('/user/contacts', {});
     }
 
-    this.innerHTML = '<github-login></github-login>';
+    this.innerHTML = `
+      <div>
+        <h3>Login or sign up</h3>
+        <github-login></github-login>
+      </div>
+    `;
   }
 }
 
