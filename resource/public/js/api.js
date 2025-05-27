@@ -43,16 +43,34 @@ async function fetchContactList() {
 }
 
 /**
- * @param {number} createdAt
+ * @param {number} contact_id
  * @returns {Promise<Response>}
  */
-async function patchContactContactedAt(createdAt) {
+async function patchContactContactedAt(contact_id) {
   const githubToken = auth.getGithubToken();
   const accessToken = githubToken.access_token;
 
-  return fetch(`/api/v0/user/contacts/${createdAt}`, {
+  return fetch(`/api/v0/user/contacts/${contact_id}`, {
     method: 'PATCH',
     body: JSON.stringify({contacted_at: time.nowSeconds()}),
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+/**
+ * @param {{full_name: string, frequency_days: number}} createdAt
+ * @returns {Promise<Response>}
+ */
+async function createContact(contact) {
+  const githubToken = auth.getGithubToken();
+  const accessToken = githubToken.access_token;
+
+  return fetch(`/api/v0/user/contacts`, {
+    method: 'POST',
+    body: JSON.stringify(contact),
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
@@ -66,5 +84,6 @@ export default {
 	fetchGithubToken,
   refreshGithubToken,
 	fetchContactList,
+  createContact,
   patchContactContactedAt,
 };

@@ -4,21 +4,18 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
-- Add possibility to import contacts.
-- Add reminders.
+- Add notifications / reminders.
 - Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.
 - Refresh token when need be.
-- Define "authenticated" endpoints (to share authentication logic).
+- Define "authenticated" endpoints (to share authentication logic), middleware?.
 - Tracy figure out callstack empty. No symbols, related to dsymutil macos issue?
 - Tracy Flame graph?
-- Pass server config as options.
-- Create DB for a new user.
+- Pass server config as options (port, ...).
 - Use test temp dir for test db and static resources.
 - Better testing of respond methods. Pass struct containing a func to testResponse? Whhere the function does the expects?
 - Refactor server routing nicer. Have a Router with "register" function (or sth) before starting server, and a "dispatch" function.
 - Handle multiple requests.
 - Ziggify sqlite.
-- Add json logger, with req id, res status, ...
 - Rate limiting?
 
 ## External dependencies
@@ -58,3 +55,16 @@ cmake --build profiler/build --config Release -- parallel
 ```shell
 zig build -Dgithub-client-id="${GITHUB_CLIENT_ID}" -Dgithub-client-secret="${GITHUB_CLIENT_SECRET}" -Doptimize=ReleaseSafe -Dtracy=/path/to/tracy/ run -- server
 ```
+
+## Hosting in home Pi
+### Installing nginx
+```shell
+sudo apt-get install nginx
+```
+
+### Nginx config
+```
+```
+
+## Old code reference
+At the time of the branch [old_reference](https://github.com/nathanlc/dont-be-strangers/tree/old_reference), sqlite was introduced instead of using CSV. Some code that wasn't needed but kept to have Zig references was cleaned up. Keeping this comment here to easily check old implementation.

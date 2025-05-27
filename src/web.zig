@@ -24,6 +24,130 @@ fn logErr(comptime fmt: []const u8, args: anytype) void {
 
 pub fn runScratch(_: std.mem.Allocator) !void {}
 
+// // TODO: Return a StringHashMap instead?
+// fn parseFormUrlEncoded(alloc: std.mem.Allocator, reader: anytype, comptime max_size: usize) ![]Request.BodyParam {
+//     var body_buf: [max_size]u8 = undefined;
+//     var body_params = std.ArrayList(Request.BodyParam).init(alloc);
+//     errdefer body_params.deinit();
+//
+//     var offset: usize = 0;
+//     var len: usize = 0;
+//     var body_param = Request.BodyParam{};
+//     // We count the occurences of '=' and '&' to validate that the body is complete.
+//     var count_equals: usize = 0;
+//     var count_ampersands: usize = 0;
+//     while (reader.readByte()) |byte| : (len += 1){
+//         body_buf[len] = byte;
+//
+//         if ('%' == byte) {
+//             std.debug.panic("TODO: Need to handle UTF-8 URI decoding!\n", .{});
+//         } else if ('=' == byte) {
+//             count_equals += 1;
+//             if (count_equals != count_ampersands + 1) {
+//                 return error.FormUrlEncodedIncorrect;
+//             }
+//             body_param.key = body_buf[offset..len];
+//             offset = len + 1;
+//         } else if ('&' == byte) {
+//             count_ampersands += 1;
+//             if (count_ampersands != count_equals) {
+//                 return error.FormUrlEncodedIncorrect;
+//             }
+//             body_param.value = body_buf[offset..len];
+//             try body_params.append(body_param);
+//             body_param = Request.BodyParam{};
+//             offset = len + 1;
+//         }
+//
+//         if (len == max_size) {
+//             return error.StreamTooLong;
+//         }
+//     } else |err| {
+//         return switch (err) {
+//             error.EndOfStream => blk: {
+//                 if (count_equals != count_ampersands + 1) {
+//                     break :blk error.FormUrlEncodedIncorrect;
+//                 }
+//
+//                 body_param.value = body_buf[offset..len];
+//                 try body_params.append(body_param);
+//                 break :blk body_params.toOwnedSlice();
+//             },
+//             else => err,
+//         };
+//     }
+// }
+//
+// test parseFormUrlEncoded {
+//     const alloc = std.testing.allocator;
+//     const expectEqual = std.testing.expectEqual;
+//     const expectEqualStrings = std.testing.expectEqualStrings;
+//     const expectError = std.testing.expectError;
+//     var tmpDir = std.testing.tmpDir(.{});
+//     defer tmpDir.cleanup();
+//
+//     {
+//         const message = "full_name=Bob&frequency_days=14";
+//         const file = try tmpDir.dir.createFile("request_body_1.txt", .{ .read = true });
+//         defer file.close();
+//
+//         try file.writeAll(message);
+//         try file.seekTo(0);
+//
+//         const reader = file.reader();
+//
+//         const body_params = try parseFormUrlEncoded(alloc, reader, 1024);
+//         defer alloc.free(body_params);
+//
+//         try expectEqual(2, body_params.len);
+//         const first_param = body_params[0];
+//         try expectEqualStrings("full_name", first_param.key);
+//         try expectEqualStrings("Bob", first_param.value);
+//         const second_param = body_params[1];
+//         try expectEqualStrings("frequency_days", second_param.key);
+//         try expectEqualStrings("14", second_param.value);
+//     }
+//
+//     {
+//         const message = "full_name=Bob&frequ";
+//         const file = try tmpDir.dir.createFile("request_body_2.txt", .{ .read = true });
+//         defer file.close();
+//
+//         try file.writeAll(message);
+//         try file.seekTo(0);
+//
+//         const reader = file.reader();
+//
+//         try expectError(error.FormUrlEncodedIncorrect, parseFormUrlEncoded(alloc, reader, 1024));
+//     }
+//
+//     {
+//         const message = "full_name=Bob_frequency_days=24";
+//         const file = try tmpDir.dir.createFile("request_body_3.txt", .{ .read = true });
+//         defer file.close();
+//
+//         try file.writeAll(message);
+//         try file.seekTo(0);
+//
+//         const reader = file.reader();
+//
+//         try expectError(error.FormUrlEncodedIncorrect, parseFormUrlEncoded(alloc, reader, 1024));
+//     }
+//
+//     {
+//         const message = "full_name=Bob&frequency_days&24";
+//         const file = try tmpDir.dir.createFile("request_body_4.txt", .{ .read = true });
+//         defer file.close();
+//
+//         try file.writeAll(message);
+//         try file.seekTo(0);
+//
+//         const reader = file.reader();
+//
+//         try expectError(error.FormUrlEncodedIncorrect, parseFormUrlEncoded(alloc, reader, 1024));
+//     }
+// }
+
 const Query = struct {
     allocator: std.mem.Allocator,
     // The query is percent encoded.
@@ -294,6 +418,22 @@ test Router {
         try expectEqual(1, dispatch_result.path_variables.len);
         try expectEqualStrings("some_contact_id", dispatch_result.path_variables[0]);
     }
+
+    {
+        var router = Router.init(alloc);
+        const dispatch_result = try router.dispatch(.GET, "/api/v0/user/contacts");
+        defer dispatch_result.free(alloc);
+        try expectEqualStrings("endpoint_without_path_variables", @tagName(dispatch_result.endpoint));
+        try expectEqualStrings("/api/v0/user/contacts", dispatch_result.endpoint.getPath());
+    }
+
+    {
+        var router = Router.init(alloc);
+        const dispatch_result = try router.dispatch(.POST, "/api/v0/user/contacts");
+        defer dispatch_result.free(alloc);
+        try expectEqualStrings("endpoint_without_path_variables", @tagName(dispatch_result.endpoint));
+        try expectEqualStrings("/api/v0/user/contacts", dispatch_result.endpoint.getPath());
+    }
 }
 
 const DispatchResult = struct {
@@ -385,7 +525,8 @@ test respondGithubLoginParams {
 
             var server_buffer: [2048]u8 = undefined;
             var server = std.http.Server.init(connection, &server_buffer);
-            var request = try Request.init(allocator, app_ptr, try server.receiveHead());
+            var http_request = try server.receiveHead();
+            var request = try Request.init(allocator, app_ptr, &http_request);
             defer request.deinit();
 
             const response = try request.respond();
@@ -650,6 +791,44 @@ fn respondApiV0UserContacts(request: *Request) !Response {
     };
 }
 
+fn respondApiV0UserContactsPost(request: *Request) !Response {
+    const ContactRequest = struct {
+        full_name: []u8,
+        frequency_days: u16,
+    };
+
+    const user_id = request.authenticateViaToken() catch |err| switch (err) {
+        error.UnauthenticatedRequest => {
+            return try respondUnauthorized(request);
+        },
+    };
+
+    const parsed_contact = std.json.parseFromSlice(ContactRequest, request.arena, request.body, .{}) catch |err| switch (err) {
+        error.UnknownField => return respondBadRequest(request),
+        else => return err,
+    };
+    defer parsed_contact.deinit();
+    const parsed_contact_value = parsed_contact.value;
+
+    var contact = model.Contact.init(request.arena);
+    defer contact.deinit();
+    contact.user_id = user_id;
+    contact.full_name = parsed_contact_value.full_name;
+    contact.frequency_days = parsed_contact_value.frequency_days;
+    contact.setDueAt(null);
+
+    request.app.sqlite.insertContact(request.arena, contact) catch |err| {
+        logger.warn("Failed to create contact: {!}", .{err});
+        return respondBadRequest(request);
+    };
+
+    return Response{
+        .body = Body{ .comp = "" },
+        .content_type = Mime.text_plain,
+        .status = .created,
+    };
+}
+
 fn respondApiV0UserContactsPatch(request: *Request, path_variables: [][]const u8) !Response {
     assert(1 == path_variables.len);
 
@@ -840,6 +1019,14 @@ fn respondInternalServerError(_: *Request) !Response {
     };
 }
 
+fn respondBadRequest(_: *Request) !Response {
+    return Response{
+        .body = Body{ .comp = "400 Bad request... maybe..." },
+        .content_type = Mime.text_plain,
+        .status = .bad_request,
+    };
+}
+
 fn testResponse(comptime method: []const u8, comptime path: []const u8, expected_body: []const u8, expected_mime: Mime, expected_status: std.http.Status) !void {
     const allocator = std.testing.allocator;
 
@@ -860,7 +1047,8 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
 
             var server_buffer: [2048]u8 = undefined;
             var server = std.http.Server.init(connection, &server_buffer);
-            var request = try Request.init(allocator, app_ptr, try server.receiveHead());
+            var http_request = try server.receiveHead();
+            var request = try Request.init(allocator, app_ptr, &http_request);
             defer request.deinit();
 
             const response = try request.respond();
@@ -926,6 +1114,7 @@ const endpoints = [_]Endpoint{
     .{ .endpoint_without_path_variables = .{ .path = "/auth/github/refresh_token", .method = std.http.Method.GET, .respond = &respondGithubRefreshToken } },
     // API routes
     .{ .endpoint_without_path_variables = .{ .path = "/api/v0/user/contacts", .method = std.http.Method.GET, .respond = &respondApiV0UserContacts } },
+    .{ .endpoint_without_path_variables = .{ .path = "/api/v0/user/contacts", .method = std.http.Method.POST, .respond = &respondApiV0UserContactsPost } },
     .{ .endpoint_with_path_variables = .{ .path = "/api/v0/user/contacts/{s}", .method = std.http.Method.PATCH, .respond = &respondApiV0UserContactsPatch } },
 };
 
@@ -979,11 +1168,18 @@ test getStaticEndpoints {
 pub const Request = struct {
     arena: std.mem.Allocator,
     app: *App,
-    inner: std.http.Server.Request,
+    inner: *std.http.Server.Request,
     url: []const u8,
     uri: std.Uri,
+    body: []const u8,
+    // body_params: []BodyParam = undefined,
 
-    pub fn init(arena: std.mem.Allocator, app: *App, request: std.http.Server.Request) !Request {
+    // pub const BodyParam = struct {
+    //     key: []const u8 = undefined,
+    //     value: []const u8 = undefined,
+    // };
+
+    pub fn init(arena: std.mem.Allocator, app: *App, request: *std.http.Server.Request) !Request {
         // TODO: figure out how to get the full URL. Or does it actually matter?
         const url = try std.fmt.allocPrint(
             arena,
@@ -993,18 +1189,23 @@ pub const Request = struct {
         errdefer arena.free(url);
         const uri = try std.Uri.parse(url);
 
+        const reader = try request.reader();
+
         return .{
             .arena = arena,
             .app = app,
             .inner = request,
             .url = url,
             .uri = uri,
+            .body = try reader.readAllAlloc(arena, 8192),
         };
     }
 
     // No need to deinit, self should have been initiated with an arena.
     pub fn deinit(self: *Request) void {
         self.arena.free(self.url);
+        self.arena.free(self.body);
+        // self.arena.free(self.body_params);
     }
 
     fn getMethod(self: *Request) std.http.Method {
@@ -1055,6 +1256,14 @@ pub const Request = struct {
         const internal_server_error_response = respondInternalServerError(request) catch unreachable;
         return internal_server_error_response;
     }
+
+    // pub fn formUrlEncoded(self: *Request, comptime max_size: usize) ![]BodyParam {
+    //     // TODO: Set an upper bound for `max_size` the whole web "app"?
+    //
+    //     const reader = try self.inner.reader();
+    //
+    //     return parseFormUrlEncoded(self.arena, reader, max_size);
+    // }
 
     pub fn respond(self: *Request) !Response {
         const tr = tracy.trace(@src());
@@ -1383,7 +1592,8 @@ pub fn runServer() !void {
 
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
-        var request = try Request.init(arena.allocator(), &app, try server.receiveHead());
+        var http_request = try server.receiveHead();
+        var request = try Request.init(arena.allocator(), &app, &http_request);
 
         _ = try request.respond();
         // const response = try request.respond();

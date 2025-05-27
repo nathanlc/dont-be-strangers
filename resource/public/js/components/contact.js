@@ -8,18 +8,14 @@ import time from '../time.js';
 class ContactList extends HTMLElement {
   constructor() {
     super();
-    const template = document.getElementById(
-      "template-contact-list",
-    ).content;
-    this.root = this.attachShadow({ mode: "open" });
-    this.root.appendChild(template.cloneNode(true));
   }
 
   connectedCallback() {
-    // TODO: move that to custom-route.
-    if (!auth.isAuthenticated()) {
-      routing.push('/', {});
-    }
+    this.innerHTML = `
+      <h3>Contacts</h3>
+      <add-contact-button></add-contact-button>
+      <ul></ul>
+    `;
 
     (async () => {
       const response = await api.fetchContactList();
@@ -36,18 +32,21 @@ class ContactList extends HTMLElement {
   }
 
   setContactList(contacts) {
-    const ul = this.root.querySelector('ul');
+    const ul = this.querySelector('ul');
     ul.innerHTML = '';
 
     contacts.sort((a, b) => a.due_at - b.due_at);
 
     contacts.forEach((contact) => {
       const contactItem = document.createElement('contact-item');
+      // Appending before setting attributes because:
+      // - ContactItem.connectedCallback will only be triggered once added to the DOM
+      // - ContactItem.attributeChangedCallback can only work if the innerHTML is defined (happens inside connectedCallback)
+      ul.appendChild(contactItem);
       contactItem.setAttribute('data-id', contact.id);
       contactItem.setAttribute('data-full-name', contact.full_name);
       contactItem.setAttribute('data-frequency-days', contact.frequency_days);
       contactItem.setAttribute('data-due-at', contact.due_at);
-      ul.appendChild(contactItem);
     });
   }
 }
@@ -60,38 +59,50 @@ class ContactItem extends HTMLElement {
     'data-due-at',
   ];
 
+  #ready = false;
+
   constructor() {
     super();
-    const template = document.getElementById(
-      "template-contact-item",
-    ).content;
-    this.root = this.attachShadow({ mode: "open" });
-    this.root.appendChild(template.cloneNode(true));
+  }
 
-    this.root.querySelector('button.contacted-action')
+  connectedCallback() {
+    this.innerHTML = `
+      <li>
+        <span class="full-name"></span>
+        <span class="frequency-days"></span>
+        <span class="due-at"></span>
+        <button class="contacted-action">✔️</button>
+        <span class="contacted-status contacted-pending display-none">⏳</span>
+        <span class="contacted-status contacted-success display-none">✅</span>
+        <span class="contacted-status contacted-error display-none">🚫</span>
+      </li>
+    `;
+    this.#ready = true;
+
+    this.querySelector('button.contacted-action')
       .addEventListener('click', (_) => this.handleContactedAction());
   }
 
   setFullName(fullName) {
-    this.root.querySelector('.full-name').textContent = fullName;
+    this.querySelector('.full-name').textContent = fullName;
   }
 
   setFrequencyDays(frequencyDays) {
-    this.root.querySelector('.frequency-days').textContent = `(${frequencyDays}d 🕔)`;
+    this.querySelector('.frequency-days').textContent = `(${frequencyDays}d 🕔)`;
   }
 
   setDueAt(dueAt) {
     const dueAtText = `${time.nDaysDiff(dueAt, time.nowSeconds())}d`;
-    this.root.querySelector('.due-at').textContent = dueAtText;
+    this.querySelector('.due-at').textContent = dueAtText;
   }
 
   setContactedRequestStatus(status) {
     console.log(`setContactedRequestStatus: ${status}`);
-    this.root.querySelectorAll('.contacted-status').forEach((el) => {
+    this.querySelectorAll('.contacted-status').forEach((el) => {
       el.classList.add('display-none');
     });
 
-    const statusEl = this.root.querySelector(`.contacted-status.contacted-${status.toLowerCase()}`);
+    const statusEl = this.querySelector(`.contacted-status.contacted-${status.toLowerCase()}`);
     if (statusEl) {
       statusEl.classList.remove('display-none');
     }
@@ -117,6 +128,10 @@ class ContactItem extends HTMLElement {
   }
 
   attributeChangedCallback(name, _oldValue, newValue) {
+    if (this.#ready === false) {
+      return;
+    }
+
     if (name === 'data-full-name') {
       this.setFullName(newValue);
     }
