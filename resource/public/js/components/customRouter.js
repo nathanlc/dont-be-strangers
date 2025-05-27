@@ -3,6 +3,11 @@
 class CustomRouter extends HTMLElement {
   constructor() {
     super();
+  }
+
+  connectedCallback() {
+    const slot = document.createElement("slot");
+    this.appendChild(slot);
 
     window.addEventListener('popstate', (event) => {
       window.setTimeout(
@@ -17,12 +22,6 @@ class CustomRouter extends HTMLElement {
     const initialState = {};
     const initialLocalUrl = window.location.pathname + window.location.search;
     window.history.replaceState(initialState, '', initialLocalUrl);
-  }
-
-  connectedCallback() {
-    const shadow = this.attachShadow({ mode: "open" });
-    const slot = document.createElement("slot");
-    shadow.appendChild(slot);
 
     this.updateRoutes(window.location.pathname, window.history.state || {});
   }

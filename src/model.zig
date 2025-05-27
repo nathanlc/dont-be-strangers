@@ -40,6 +40,7 @@ pub const Sqlite = struct {
     db: *c.sqlite3,
     select_contacts_by_user_stmt: *c.sqlite3_stmt = undefined,
     update_contact_stmt: *c.sqlite3_stmt = undefined,
+    insert_contact_stmt: *c.sqlite3_stmt = undefined,
     insert_user_stmt: *c.sqlite3_stmt = undefined,
     select_user_by_external_id_stmt: *c.sqlite3_stmt = undefined,
 
@@ -94,6 +95,21 @@ pub const Sqlite = struct {
             break :blk stmt.?;
         };
 
+        const insert_contact_stmt = blk: {
+            var stmt: ?*c.sqlite3_stmt = undefined;
+            const sql =
+                \\ INSERT INTO contacts
+                \\     (user_id, full_name, frequency_days, due_at)
+                \\ VALUES
+                \\     (?1, ?2, ?3, ?4)
+            ;
+            if (c.SQLITE_OK != c.sqlite3_prepare_v2(db, sql, sql.len + 1, &stmt, null)) {
+                logErr("Failed to create insert_contact_stmt statement {s}: {s}", .{sql, c.sqlite3_errmsg(db)});
+                return error.CreateStmtFailure;
+            }
+            break :blk stmt.?;
+        };
+
         const insert_user_stmt = blk: {
             var stmt: ?*c.sqlite3_stmt = undefined;
             const sql =
@@ -135,6 +151,7 @@ pub const Sqlite = struct {
             .db = db,
             .select_contacts_by_user_stmt = select_contacts_by_user_stmt,
             .update_contact_stmt = update_contact_stmt,
+            .insert_contact_stmt = insert_contact_stmt,
             .insert_user_stmt = insert_user_stmt,
             .select_user_by_external_id_stmt = select_user_by_external_id_stmt,
         };
@@ -154,6 +171,7 @@ pub const Sqlite = struct {
     pub fn deinit(self: Sqlite) void {
         _ = c.sqlite3_finalize(self.select_contacts_by_user_stmt);
         _ = c.sqlite3_finalize(self.update_contact_stmt);
+        _ = c.sqlite3_finalize(self.insert_contact_stmt);
         _ = c.sqlite3_finalize(self.insert_user_stmt);
         _ = c.sqlite3_finalize(self.select_user_by_external_id_stmt);
         _ = c.sqlite3_close(self.db);
@@ -337,6 +355,42 @@ pub const Sqlite = struct {
 
         if (c.SQLITE_DONE != c.sqlite3_step(self.update_contact_stmt)) {
             logErr("Step in updateContact failed: {s}", .{c.sqlite3_errmsg(self.db)});
+            return error.StepQueryFailure;
+        }
+
+        return;
+    }
+
+    pub fn insertContact(self: Sqlite, alloc: std.mem.Allocator, contact: Contact) !void {
+        defer {
+            _ = c.sqlite3_reset(self.insert_contact_stmt);
+        }
+
+        if (c.SQLITE_OK != c.sqlite3_bind_int(self.insert_contact_stmt, 1, @intCast(contact.user_id))) {
+            logErr("Failed to bind user_id: {s}", .{c.sqlite3_errmsg(self.db)});
+            return error.BindIntFailure;
+        }
+
+        const full_name_c = try std.fmt.allocPrintZ(alloc, "{s}", .{contact.full_name});
+        defer alloc.free(full_name_c);
+        // SQLITE_STATIC means that dont_be_strangers is responsible for deallocating full_name_c.
+        if (c.SQLITE_OK != c.sqlite3_bind_text(self.insert_contact_stmt, 2, full_name_c, @intCast(full_name_c.len), c.SQLITE_STATIC)) {
+            logErr("Failed to bind full_name: {s}", .{c.sqlite3_errmsg(self.db)});
+            return error.BindTextFailure;
+        }
+
+        if (c.SQLITE_OK != c.sqlite3_bind_int(self.insert_contact_stmt, 3, @intCast(contact.frequency_days))) {
+            logErr("Failed to bind frequency_days: {s}", .{c.sqlite3_errmsg(self.db)});
+            return error.BindIntFailure;
+        }
+
+        if (c.SQLITE_OK != c.sqlite3_bind_int(self.insert_contact_stmt, 4, @intCast(contact.due_at))) {
+            logErr("Failed to bind due_at: {s}", .{c.sqlite3_errmsg(self.db)});
+            return error.BindIntFailure;
+        }
+
+        if (c.SQLITE_DONE != c.sqlite3_step(self.insert_contact_stmt)) {
+            logErr("Step in insertContact failed: {s}", .{c.sqlite3_errmsg(self.db)});
             return error.StepQueryFailure;
         }
 

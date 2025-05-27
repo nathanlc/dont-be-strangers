@@ -6,11 +6,6 @@ import routing from '../routing.js';
 class HomePage extends HTMLElement {
   constructor() {
     super();
-    const template = document.getElementById(
-      'template-home-page',
-    ).content;
-    this.root = this.attachShadow({ mode: 'open' });
-    this.root.appendChild(template.cloneNode(true));
   }
 
   connectedCallback() {
@@ -18,6 +13,13 @@ class HomePage extends HTMLElement {
     if (auth.isAuthenticated()) {
       routing.push('/user/contacts', {});
     }
+
+    this.innerHTML = `
+      <div>
+        <h3>Login or sign up</h3>
+        <github-login></github-login>
+      </div>
+    `;
   }
 }
 

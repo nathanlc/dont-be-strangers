@@ -5,15 +5,15 @@ import api from '../api.js';
 class GithubLogin extends HTMLElement {
   constructor() {
     super();
-    const template = document.getElementById(
-      "template-github-login",
-    ).content;
-    this.root = this.attachShadow({ mode: "open" });
-    this.root.appendChild(template.cloneNode(true));
   }
 
   connectedCallback() {
-    const button = this.root.querySelector('button');
+    this.innerHTML = `
+      <div>
+        <button type="button">Login with GitHub</button>
+      </div>
+    `;
+    const button = this.querySelector('button');
 
     button.addEventListener('click', async (event) => {
       event.preventDefault();

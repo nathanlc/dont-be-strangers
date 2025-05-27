@@ -38,21 +38,39 @@ async function fetchContactList() {
   const accessToken = githubToken.access_token;
 
   return fetch('/api/v0/user/contacts', {
-    headers: {'Authorization': `Bearer ${accessToken}`},
+    headers: { 'Authorization': `Bearer ${accessToken}` },
   });
 }
 
 /**
- * @param {number} createdAt
+ * @param {number} contact_id
  * @returns {Promise<Response>}
  */
-async function patchContactContactedAt(createdAt) {
+async function patchContactContactedAt(contact_id) {
   const githubToken = auth.getGithubToken();
   const accessToken = githubToken.access_token;
 
-  return fetch(`/api/v0/user/contacts/${createdAt}`, {
+  return fetch(`/api/v0/user/contacts/${contact_id}`, {
     method: 'PATCH',
-    body: JSON.stringify({contacted_at: time.nowSeconds()}),
+    body: JSON.stringify({ contacted_at: time.nowSeconds() }),
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+/**
+ * @param {{full_name: string, frequency_days: number}} contact
+ * @returns {Promise<Response>}
+ */
+async function createContact(contact) {
+  const githubToken = auth.getGithubToken();
+  const accessToken = githubToken.access_token;
+
+  return fetch(`/api/v0/user/contacts`, {
+    method: 'POST',
+    body: JSON.stringify(contact),
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
@@ -62,9 +80,10 @@ async function patchContactContactedAt(createdAt) {
 
 export default {
   requestStatus,
-	GITHUB_LOGIN_CALLBACK: '/auth/github/callback',
-	fetchGithubToken,
+  GITHUB_LOGIN_CALLBACK: '/auth/github/callback',
+  fetchGithubToken,
   refreshGithubToken,
-	fetchContactList,
+  fetchContactList,
+  createContact,
   patchContactContactedAt,
 };

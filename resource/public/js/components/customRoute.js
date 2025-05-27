@@ -7,13 +7,16 @@ class CustomRoute extends HTMLElement {
   // data-route-state is stringified JSON.
   static observedAttributes = ['data-current-path', 'data-route-state'];
 
+  #ready;
+  #rendered;
+
   constructor() {
     super();
     // attributeChangedCallback is called before connectedCallback.
     // We need connectedCallback to run before the route is ready.
-    this.ready = false;
+    this.#ready = false;
     // We do not want to append the child element multiple times.
-    this.rendered = false;
+    this.#rendered = false;
   }
 
   connectedCallback() {
@@ -21,14 +24,13 @@ class CustomRoute extends HTMLElement {
 
     // TODO verify there is a parent custom-router element.
 
-    this.ready = true;
-    this.attachShadow({ mode: "open" });
+    this.#ready = true;
     this.handleRouteChange();
   }
 
   handleRouteChange() {
     const currentPath = this.getAttribute('data-current-path');
-    if (!this.ready || !currentPath) {
+    if (!this.#ready || !currentPath) {
       return;
     }
 
@@ -44,18 +46,18 @@ class CustomRoute extends HTMLElement {
         }
       }
 
-      if (!this.rendered) {
+      if (!this.#rendered) {
         const childElementName = this.getAttribute('data-element');
         const childElement = document.createElement(childElementName);
-        this.shadowRoot.appendChild(childElement);
-        this.rendered = true;
+        this.appendChild(childElement);
+        this.#rendered = true;
       } else {
         console.log(`CustomRoute for path ${this.getAttribute('data-path')} already rendered.`);
       }
     } else {
       // console.log(`CustomRoute for path ${this.getAttribute('data-path')} DEACTIVATED.`);
-      this.shadowRoot.innerHTML = '';
-      this.rendered = false;
+      this.innerHTML = '';
+      this.#rendered = false;
     }
   }
 
