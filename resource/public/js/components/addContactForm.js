@@ -14,7 +14,7 @@ class AddContactForm extends HTMLElement {
       <form>
         <div>
           <label for="full-name-input">Full name</label>
-          <input id="full-name-input" type="text" placeholder="John Doe" name="full_name" value="" required/>
+          <input id="full-name-input" type="text" placeholder="John Doe" name="full_name" autocomplete="off" value="" required/>
         </div>
         <div>
           <label for="frequency-days-input">Frequency days</label>

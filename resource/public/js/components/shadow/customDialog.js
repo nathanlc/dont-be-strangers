@@ -1,8 +1,6 @@
 'use strict';
 
 class CustomDialog extends HTMLElement {
-  #ready = false;
-
   constructor() {
     super();
     this.root = null;
@@ -17,26 +15,18 @@ class CustomDialog extends HTMLElement {
         <slot></slot>
       </dialog>
     `;
+
     this.root.querySelector('.close-button').addEventListener('click', async (_event) => {
       this.root.querySelector('dialog').close();
     });
-    this.#ready = true;
   }
 
   showModal() {
-    if (!this.#ready) {
-      return;
-    }
-
-    this.root.querySelector('dialog').showModal();
+    this.root.querySelector('dialog')?.showModal();
   }
 
   close() {
-    if (!this.#ready) {
-      return;
-    }
-
-    this.root.querySelector('dialog').close();
+    this.root.querySelector('dialog')?.close();
   }
 }
 
