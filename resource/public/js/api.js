@@ -61,7 +61,7 @@ async function patchContactContactedAt(contact_id) {
 }
 
 /**
- * @param {{full_name: string, frequency_days: number}} createdAt
+ * @param {{full_name: string, frequency_days: number}} contact
  * @returns {Promise<Response>}
  */
 async function createContact(contact) {
