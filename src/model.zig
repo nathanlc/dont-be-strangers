@@ -171,6 +171,7 @@ pub const Sqlite = struct {
     pub fn deinit(self: Sqlite) void {
         _ = c.sqlite3_finalize(self.select_contacts_by_user_stmt);
         _ = c.sqlite3_finalize(self.update_contact_stmt);
+        _ = c.sqlite3_finalize(self.insert_contact_stmt);
         _ = c.sqlite3_finalize(self.insert_user_stmt);
         _ = c.sqlite3_finalize(self.select_user_by_external_id_stmt);
         _ = c.sqlite3_close(self.db);
