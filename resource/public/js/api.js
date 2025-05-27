@@ -38,7 +38,7 @@ async function fetchContactList() {
   const accessToken = githubToken.access_token;
 
   return fetch('/api/v0/user/contacts', {
-    headers: {'Authorization': `Bearer ${accessToken}`},
+    headers: { 'Authorization': `Bearer ${accessToken}` },
   });
 }
 
@@ -52,7 +52,7 @@ async function patchContactContactedAt(contact_id) {
 
   return fetch(`/api/v0/user/contacts/${contact_id}`, {
     method: 'PATCH',
-    body: JSON.stringify({contacted_at: time.nowSeconds()}),
+    body: JSON.stringify({ contacted_at: time.nowSeconds() }),
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
@@ -80,10 +80,10 @@ async function createContact(contact) {
 
 export default {
   requestStatus,
-	GITHUB_LOGIN_CALLBACK: '/auth/github/callback',
-	fetchGithubToken,
+  GITHUB_LOGIN_CALLBACK: '/auth/github/callback',
+  fetchGithubToken,
   refreshGithubToken,
-	fetchContactList,
+  fetchContactList,
   createContact,
   patchContactContactedAt,
 };
