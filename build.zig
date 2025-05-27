@@ -11,7 +11,7 @@ const Zon = struct {
 };
 
 fn sourceSqlite(module: *std.Build.Module) void {
-    // module.link_libc = true;
+    module.link_libc = true;
     module.addIncludePath(.{ .cwd_relative = "lib/c/sqlite" });
     module.addCSourceFile(.{
         .file = .{ .cwd_relative = "lib/c/sqlite/sqlite3.c" },
