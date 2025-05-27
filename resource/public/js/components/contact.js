@@ -12,9 +12,13 @@ class ContactList extends HTMLElement {
 
   connectedCallback() {
     this.innerHTML = `
-      <h3>Contacts</h3>
-      <add-contact-button></add-contact-button>
-      <ul></ul>
+      <div>
+        <h3>Contacts</h3>
+        <div>
+          <add-contact-button></add-contact-button>
+        </div>
+        <ul></ul>
+      </div>
     `;
 
     (async () => {
