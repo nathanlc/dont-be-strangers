@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install zig
-        run: apk update && apk add "zig=~0.14"
+        run: apk add zig
       - name: Build
         run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
       - name: Test
