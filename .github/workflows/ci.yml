@@ -18,6 +18,9 @@ jobs:
         with:
           version: 0.14.1
 
+      - name: List available ports
+        run: sudo netstat -lpn
+
       - name: Build
         run: zig build -Dgithub-client-id=test_gh_client_id -Dgithub-client-secret=test_gh_client_secret
 
