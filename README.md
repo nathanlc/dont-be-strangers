@@ -14,7 +14,11 @@ Service to get reminded to stay in touch with people.
 - Use test temp dir for test db and static resources.
 - Better testing of respond methods. Pass struct containing a func to testResponse? Whhere the function does the expects?
 - Refactor server routing nicer. Have a Router with "register" function (or sth) before starting server, and a "dispatch" function.
+- Improve request body parsing
+  - Add error messages to responses.
+  - Handle form url encoding, unicode code points.
 - Handle multiple requests.
+- Add templating system.
 - Ziggify sqlite.
 - Rate limiting?
 
@@ -54,16 +58,6 @@ cmake --build profiler/build --config Release -- parallel
 - Start the tracy client (dont-be-strangers server):
 ```shell
 zig build -Dgithub-client-id="${GITHUB_CLIENT_ID}" -Dgithub-client-secret="${GITHUB_CLIENT_SECRET}" -Doptimize=ReleaseSafe -Dtracy=/path/to/tracy/ run -- server
-```
-
-## Hosting in home Pi
-### Installing nginx
-```shell
-sudo apt-get install nginx
-```
-
-### Nginx config
-```
 ```
 
 ## Old code reference
