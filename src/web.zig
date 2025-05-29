@@ -1596,22 +1596,20 @@ pub fn runServer() !void {
     // Ensure Github API credentials are present in env variables.
     var env_map = try std.process.getEnvMap(allocator);
     defer env_map.deinit();
-    const maybe_github_client_id = env_map.get("GITHUB_CLIENT_ID");
-    const maybe_github_secret = env_map.get("GITHUB_SECRET");
-    if (maybe_github_client_id) |github_client_id| {
-        if (std.mem.eql(u8, "", github_client_id)) {
-            return error.GithubClientIdEmpty;
-        }
-    } else {
-        return error.GithubClientIdMissing;
-    }
-    if (maybe_github_secret) |github_secret| {
-        if (std.mem.eql(u8, "", github_secret)) {
-            return error.GithubSecretEmpty;
-        }
-    } else {
-        return error.GithubSecretMissing;
-    }
+
+    fn validateEnvVar(env_map: std.process.EnvMap, var_name: []const u8, missing_error: anyerror, empty_error: anyerror) ![]const u8 {
+        const maybe_var = env_map.get(var_name);
+        if (maybe_var) |var_value| {
+            if (std.mem.eql(u8, "", var_value)) {
+                return empty_error;
+            }
+            return var_value;
+        } else {
+            return missing_error;
+       }
+   }
+    const github_client_id = try validateEnvVar(env_map, "GITHUB_CLIENT_ID", error.GithubClientIdMissing, error.GithubClientIdEmpty);
+    const github_secret = try validateEnvVar(env_map, "GITHUB_SECRET", error.GithubSecretMissing, error.GithubSecretEmpty);
     const github_creds = github.ApiCredentials{
         .client_id = maybe_github_client_id.?,
         .secret = maybe_github_secret.?,
