@@ -1585,6 +1585,15 @@ pub fn tidyServer(app_ptr: *App) !void {
     }
 }
 
+fn validateEnvVar(env_map: std.process.EnvMap, var_name: []const u8, missing_error: anyerror, empty_error: anyerror) ![]const u8 {
+    if (env_map.get(var_name)) |var_value| {
+        return if (std.mem.eql(u8, "", var_value)) empty_error else var_value;
+    } else {
+        return missing_error;
+    }
+}
+
+
 pub fn runServer() !void {
     var general_purpose_allocator = std.heap.DebugAllocator(.{}).init;
     // const allocator = std.heap.page_allocator
@@ -1597,22 +1606,11 @@ pub fn runServer() !void {
     var env_map = try std.process.getEnvMap(allocator);
     defer env_map.deinit();
 
-    fn validateEnvVar(env_map: std.process.EnvMap, var_name: []const u8, missing_error: anyerror, empty_error: anyerror) ![]const u8 {
-        const maybe_var = env_map.get(var_name);
-        if (maybe_var) |var_value| {
-            if (std.mem.eql(u8, "", var_value)) {
-                return empty_error;
-            }
-            return var_value;
-        } else {
-            return missing_error;
-       }
-   }
     const github_client_id = try validateEnvVar(env_map, "GITHUB_CLIENT_ID", error.GithubClientIdMissing, error.GithubClientIdEmpty);
     const github_secret = try validateEnvVar(env_map, "GITHUB_SECRET", error.GithubSecretMissing, error.GithubSecretEmpty);
     const github_creds = github.ApiCredentials{
-        .client_id = maybe_github_client_id.?,
-        .secret = maybe_github_secret.?,
+        .client_id = github_client_id,
+        .secret = github_secret,
     };
 
     var app = try App.init(.{
