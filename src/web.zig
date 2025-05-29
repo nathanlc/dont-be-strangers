@@ -494,8 +494,8 @@ fn respondGithubLoginParams(request: *Request) !Response {
     const state = try request.app.nonce_map.new();
     const body = try std.fmt.allocPrint(
         request.arena,
-        "{{\"github_client_id\":\"" ++ github.GITHUB_CLIENT_ID ++ "\",\"state\":\"{s}\"}}",
-        .{state},
+        "{{\"github_client_id\":\"{s}\",\"state\":\"{s}\"}}",
+        .{request.app.github_creds.client_id, state},
     );
     errdefer request.arena.free(body);
 
@@ -508,7 +508,11 @@ fn respondGithubLoginParams(request: *Request) !Response {
 test respondGithubLoginParams {
     const allocator = std.testing.allocator;
 
-    var app = try App.init(allocator, App.Env.testing);
+    var app = try App.init(.{
+        .alloc = allocator,
+        .env = App.Env.testing,
+        .github_creds = github.ApiCredentials.testing(),
+    });
     defer app.deinit();
 
     const ip = "127.0.0.1";
@@ -651,7 +655,7 @@ fn respondGithubAccessToken(request: *Request) !Response {
 
     const payload: github.FetchTokenPayload = .{ .authorization_code = .{ .code = code } };
 
-    return handleFetchedToken(request, github.fetchToken(request.arena, payload));
+    return handleFetchedToken(request, github.fetchToken(request.arena, request.app.github_creds, payload));
 }
 
 fn respondGithubRefreshToken(request: *Request) !Response {
@@ -670,7 +674,7 @@ fn respondGithubRefreshToken(request: *Request) !Response {
         .refresh_token = refresh_token,
     } };
 
-    return handleFetchedToken(request, github.fetchToken(request.arena, payload));
+    return handleFetchedToken(request, github.fetchToken(request.arena, request.app.github_creds, payload));
 }
 
 const ContactView = struct {
@@ -1030,7 +1034,11 @@ fn respondBadRequest(_: *Request) !Response {
 fn testResponse(comptime method: []const u8, comptime path: []const u8, expected_body: []const u8, expected_mime: Mime, expected_status: std.http.Status) !void {
     const allocator = std.testing.allocator;
 
-    var app = try App.init(allocator, App.Env.testing);
+    var app = try App.init(.{
+        .alloc = allocator,
+        .env = App.Env.testing,
+        .github_creds = github.ApiCredentials.testing(),
+    });
     defer app.deinit();
 
     const ip = "127.0.0.1";
@@ -1521,23 +1529,33 @@ const App = struct {
     sqlite: model.Sqlite,
     nonce_map: NonceMap,
     token_cache: TokenCache,
+    github_creds: github.ApiCredentials,
 
     pub const Env = enum {
         prod,
         testing,
     };
 
-    pub fn init(alloc: std.mem.Allocator, env: Env) !App {
-        const db_env = switch (env) {
+    pub const Options = struct {
+        alloc: std.mem.Allocator,
+        env: Env,
+        github_creds: github.ApiCredentials,
+    };
+
+    pub fn init(opts: Options) !App {
+        const db_env = switch (opts.env) {
             .prod => model.Sqlite.Env.prod,
             .testing => model.Sqlite.Env.testing,
         };
+
+        const alloc = opts.alloc;
 
         return .{
             .alloc = alloc,
             .sqlite = try model.Sqlite.open(db_env),
             .nonce_map = NonceMap.init(alloc),
             .token_cache = TokenCache.init(alloc),
+            .github_creds = opts.github_creds,
         };
     }
 
@@ -1572,9 +1590,38 @@ pub fn runServer() !void {
     // const allocator = std.heap.page_allocator
     const allocator = general_purpose_allocator.allocator();
 
+    // TODO: This should be part of sqlite, there should be only 1 method "setup" that depending on the Sqlite.Env sets up the appropriate DB.
     try model.setupSqlite();
 
-    var app = try App.init(allocator, App.Env.prod);
+    // Ensure Github API credentials are present in env variables.
+    var env_map = try std.process.getEnvMap(allocator);
+    defer env_map.deinit();
+    const maybe_github_client_id = env_map.get("GITHUB_CLIENT_ID");
+    const maybe_github_secret = env_map.get("GITHUB_SECRET");
+    if (maybe_github_client_id) |github_client_id| {
+        if (std.mem.eql(u8, "", github_client_id)) {
+            return error.GithubClientIdEmpty;
+        }
+    } else {
+        return error.GithubClientIdMissing;
+    }
+    if (maybe_github_secret) |github_secret| {
+        if (std.mem.eql(u8, "", github_secret)) {
+            return error.GithubSecretEmpty;
+        }
+    } else {
+        return error.GithubSecretMissing;
+    }
+    const github_creds = github.ApiCredentials{
+        .client_id = maybe_github_client_id.?,
+        .secret = maybe_github_secret.?,
+    };
+
+    var app = try App.init(.{
+        .alloc = allocator,
+        .env = App.Env.prod,
+        .github_creds = github_creds,
+    });
     defer app.deinit();
 
     const address = try std.net.Address.resolveIp(DEFAULT_HOST, DEFAULT_PORT);

@@ -7,6 +7,7 @@ Service to get reminded to stay in touch with people.
 - Add notifications / reminders.
 - Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.
 - Refresh token when need be.
+- Make web app so it can be a "mobile" app.
 - Define "authenticated" endpoints (to share authentication logic), middleware?.
 - Tracy figure out callstack empty. No symbols, related to dsymutil macos issue?
 - Tracy Flame graph?
@@ -27,8 +28,9 @@ Service to get reminded to stay in touch with people.
 
 ## Development
 ### Run build with file system watching
+The env variables GITHUB_CLIENT_ID and GITHUB_SECRET must be set.
 ```
-zig build -Dgithub-client-id="${GITHUB_CLIENT_ID}" -Dgithub-client-secret="${GITHUB_CLIENT_SECRET}" -Dno-bin -fincremental --watch
+zig build -Dno-bin -fincremental --watch
 ```
 
 ### Run tests automatically
@@ -37,8 +39,9 @@ ls src/* | entr -cc -s 'zig test -I lib/c/sqlite -lsqlite3 src/test.zig'
 ```
 
 ### Run the server
+The env variables GITHUB_CLIENT_ID and GITHUB_SECRET must be set.
 ```shell
-zig build -Dgithub-client-id="${GITHUB_CLIENT_ID}" -Dgithub-client-secret="${GITHUB_CLIENT_SECRET}" run -- server
+zig build run -- server
 ```
 
 ## Profiling

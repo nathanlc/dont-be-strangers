@@ -57,9 +57,6 @@ pub fn build(b: *std.Build) void {
     // See https://ziglang.org/download/0.14.0/release-notes.html#Build-System
     const no_bin = b.option(bool, "no-bin", "skip emitting binary") orelse false;
 
-    const github_client_id = b.option([]const u8, "github-client-id", "Github app registered client ID");
-    const github_client_secret = b.option([]const u8, "github-client-secret", "Github app registered client secret");
-
     // Taken from ziglang/zig std/tracy.zig
     const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
     const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
@@ -67,9 +64,6 @@ pub fn build(b: *std.Build) void {
     const tracy_callstack_depth: u32 = b.option(u32, "tracy-callstack-depth", "Declare callstack depth for Tracy data. Does nothing if -Dtracy_callstack is not provided") orelse 10;
 
     const options = b.addOptions();
-    options.addOption(?[]const u8, "github_client_id", github_client_id);
-    options.addOption(?[]const u8, "github_client_secret", github_client_secret);
-
     options.addOption(bool, "enable_tracy", tracy != null);
     options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
     options.addOption(bool, "enable_tracy_allocation", tracy_allocation);

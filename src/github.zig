@@ -4,17 +4,23 @@ const web = @import("web.zig");
 const config = if (builtin.is_test) @import("test.zig").Config{} else @import("config");
 const tracy = @import("tracy.zig");
 
-pub const GITHUB_CLIENT_ID = config.github_client_id orelse {
-    @compileError("Missing github_client_id from config");
-};
-const GITHUB_CLIENT_SECRET = config.github_client_secret orelse {
-    @compileError("Missing github_client_secret from config");
-};
 const TOKEN_URL = "https://github.com/login/oauth/access_token";
 const API_URL = "https://api.github.com";
 const USER_URL = API_URL ++ "/user";
 
 const logger = std.log.scoped(.github);
+
+pub const ApiCredentials = struct {
+    client_id: []const u8,
+    secret: []const u8,
+
+    pub fn testing() ApiCredentials {
+        return .{
+            .client_id = "test_github_client_id",
+            .secret = "test_github_secret",
+        };
+    }
+};
 
 pub const FetchTokenError = error{
     Unauthorized,
@@ -49,7 +55,7 @@ pub const AccessToken = struct {
     token_type: []u8,
 };
 
-pub fn fetchToken(alloc: std.mem.Allocator, payload: FetchTokenPayload) !std.json.Parsed(AccessToken) {
+pub fn fetchToken(alloc: std.mem.Allocator, api_credentials: ApiCredentials, payload: FetchTokenPayload) !std.json.Parsed(AccessToken) {
     var client = std.http.Client{ .allocator = alloc };
     defer client.deinit();
 
@@ -62,13 +68,13 @@ pub fn fetchToken(alloc: std.mem.Allocator, payload: FetchTokenPayload) !std.jso
     const body = switch (payload) {
         .authorization_code => |p| try std.fmt.allocPrint(
             alloc,
-            "{{\"client_id\":\"" ++ GITHUB_CLIENT_ID ++ "\",\"client_secret\":\"" ++ GITHUB_CLIENT_SECRET ++ "\",\"code\":\"{s}\"}}",
-            .{p.code},
+            "{{\"client_id\":\"{s}\",\"client_secret\":\"{s}\",\"code\":\"{s}\"}}",
+            .{api_credentials.client_id, api_credentials.secret, p.code},
         ),
         .refresh_token => |p| try std.fmt.allocPrint(
             alloc,
-            "{{\"client_id\":\"" ++ GITHUB_CLIENT_ID ++ "\",\"client_secret\":\"" ++ GITHUB_CLIENT_SECRET ++ "\",\"grant_type\":\"refresh_token\",\"refresh_token\": \"{s}\"}}",
-            .{p.refresh_token},
+            "{{\"client_id\":\"{s}\",\"client_secret\":\"{s}\",\"grant_type\":\"refresh_token\",\"refresh_token\":\"{s}\"}}",
+            .{api_credentials.client_id, api_credentials.secret, p.refresh_token},
         ),
     };
 
