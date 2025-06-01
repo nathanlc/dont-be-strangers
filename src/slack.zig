@@ -37,7 +37,7 @@ pub fn sendMessage(alloc: std.mem.Allocator, url: []const u8, message: []const u
 
     const response = request.response;
     if (response.status.class() != .success) {
-        logger.err("Failed to fetch token:\n{s}", .{response_body});
+        logger.err("Failed to send Slack message:\n{s}", .{response_body});
         return error.HttpRequestFailed;
     }
 }
