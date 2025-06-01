@@ -281,22 +281,16 @@ pub const Sqlite = struct {
     }
 
     pub fn setupTest() !void {
-        logger.warn("Setup 1", .{});
         var db_ptr: ?*c.sqlite3 = undefined;
-        logger.warn("Setup 2", .{});
         const path = Env.testing.dbPath();
-        logger.warn("Setup 3", .{});
         const open_result = c.sqlite3_open(path, &db_ptr);
         defer {
             _ = c.sqlite3_close(db_ptr);
         }
-        logger.warn("Setup 4", .{});
         if (open_result != c.SQLITE_OK) {
-            logger.warn("Setup 5", .{});
             logErr("Failed to open sqlite DB during setupTest {s}: {s}", .{path, c.sqlite3_errmsg(db_ptr)});
             return error.DbOpenFailure;
         }
-        logger.warn("Setup 6", .{});
 
         const sql =
             \\ DROP TABLE IF EXISTS users;
@@ -348,9 +342,7 @@ pub const Sqlite = struct {
             \\ SELECT user_id, 'Timmy', 14, 120000 FROM user;
         ;
 
-        logger.warn("Setup 6", .{});
         const self = Sqlite{ .db = db_ptr.? };
-        logger.warn("Setup 7", .{});
 
         try self.execute(sql);
     }
