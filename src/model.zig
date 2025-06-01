@@ -835,6 +835,10 @@ pub const Contact = struct {
         self.alloc.free(self.full_name);
     }
 
+    pub fn isDueBy(self: *Contact, time: i64) bool {
+        return time >= self.due_at;
+    }
+
     pub fn setDueAt(self: *Contact, maybe_contacted_at_seconds: ?u32) void {
         const contacted_at_seconds = if (maybe_contacted_at_seconds) |x| x else blk: {
             const now_seconds = std.time.timestamp();

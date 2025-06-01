@@ -1622,7 +1622,7 @@ pub fn scheduledJobs(app: *App, alloc: std.mem.Allocator) !void {
                 defer due_message.deinit();
                 var writer = due_message.writer();
                 while (contact_iter.next()) |entry| {
-                    if (tomorrow >= entry.value_ptr.due_at) {
+                    if (entry.value_ptr.isDueBy(tomorrow)) {
                         if (0 == due_message.items.len) {
                             try writer.print("Contacts due:", .{});
                         }
