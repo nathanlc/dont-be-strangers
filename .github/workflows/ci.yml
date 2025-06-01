@@ -12,8 +12,8 @@ jobs:
       fail-fast: false
     runs-on: ubuntu-latest
     env:
-      GITHUB_CLIENT_ID=test_gh_client_id
-      GITHUB_SECRET=test_github_secret
+      GITHUB_CLIENT_ID: test_gh_client_id
+      GITHUB_SECRET: test_github_secret
     steps:
       - uses: actions/checkout@v4
 
