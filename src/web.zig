@@ -509,59 +509,59 @@ fn respondGithubLoginParams(request: *Request) !Response {
     };
 }
 
-// test respondGithubLoginParams {
-//     const allocator = std.testing.allocator;
-//
-//     try model.Sqlite.setupTest();
-//
-//     var app = try App.init(.{
-//         .alloc = allocator,
-//         .env = App.Env.testing,
-//         .github_creds = github.ApiCredentials.testing(),
-//     });
-//     defer app.deinit();
-//
-//     const ip = "127.0.0.1";
-//     const port = 3011;
-//
-//     const server_thread = try std.Thread.spawn(.{}, (struct {
-//         fn apply(app_ptr: *App) !void {
-//             const address = try std.net.Address.resolveIp(ip, port);
-//             var net_server = try address.listen(.{ .reuse_address = true });
-//             defer net_server.deinit();
-//
-//             const connection = try net_server.accept();
-//             defer connection.stream.close();
-//
-//             var server_buffer: [2048]u8 = undefined;
-//             var server = std.http.Server.init(connection, &server_buffer);
-//             var http_request = try server.receiveHead();
-//             var request = try Request.init(allocator, app_ptr, &http_request);
-//             defer request.deinit();
-//
-//             const response = try request.respond();
-//
-//             const body_str = response.body.bodyStr();
-//             try std.testing.expectEqual(87, body_str.len);
-//             try std.testing.expectEqual(http.Mime.application_json, response.content_type);
-//             try std.testing.expectEqual(.ok, response.status);
-//         }
-//     }).apply, .{&app});
-//
-//     const request_bytes =
-//         "GET /auth/github/login_params HTTP/1.1\r\n" ++
-//         "Accept: */*\r\n" ++
-//         "\r\n";
-//
-//     // Pause for 0.01s otherwise connection is refused in github actions...
-//     std.posix.nanosleep(0, 10_000_000);
-//
-//     const stream = try std.net.tcpConnectToHost(allocator, ip, port);
-//     defer stream.close();
-//     _ = try stream.writeAll(request_bytes[0..]);
-//
-//     server_thread.join();
-// }
+test respondGithubLoginParams {
+    const allocator = std.testing.allocator;
+
+    try model.Sqlite.setupTest();
+
+    var app = try App.init(.{
+        .alloc = allocator,
+        .env = App.Env.testing,
+        .github_creds = github.ApiCredentials.testing(),
+    });
+    defer app.deinit();
+
+    const ip = "127.0.0.1";
+    const port = 3011;
+
+    const server_thread = try std.Thread.spawn(.{}, (struct {
+        fn apply(app_ptr: *App) !void {
+            const address = try std.net.Address.resolveIp(ip, port);
+            var net_server = try address.listen(.{ .reuse_address = true });
+            defer net_server.deinit();
+
+            const connection = try net_server.accept();
+            defer connection.stream.close();
+
+            var server_buffer: [2048]u8 = undefined;
+            var server = std.http.Server.init(connection, &server_buffer);
+            var http_request = try server.receiveHead();
+            var request = try Request.init(allocator, app_ptr, &http_request);
+            defer request.deinit();
+
+            const response = try request.respond();
+
+            const body_str = response.body.bodyStr();
+            try std.testing.expectEqual(87, body_str.len);
+            try std.testing.expectEqual(http.Mime.application_json, response.content_type);
+            try std.testing.expectEqual(.ok, response.status);
+        }
+    }).apply, .{&app});
+
+    const request_bytes =
+        "GET /auth/github/login_params HTTP/1.1\r\n" ++
+        "Accept: */*\r\n" ++
+        "\r\n";
+
+    // Pause for 0.01s otherwise connection is refused in github actions...
+    std.posix.nanosleep(0, 10_000_000);
+
+    const stream = try std.net.tcpConnectToHost(allocator, ip, port);
+    defer stream.close();
+    _ = try stream.writeAll(request_bytes[0..]);
+
+    server_thread.join();
+}
 
 fn respondGithubCallback(request: *Request) !Response {
     var query = try request.getQuery();
