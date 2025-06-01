@@ -10,7 +10,7 @@ jobs:
     name: Check build & Test
     strategy:
       fail-fast: false
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     env:
       GITHUB_CLIENT_ID: test_gh_client_id
       GITHUB_SECRET: test_github_secret
