@@ -659,7 +659,7 @@ pub const Sqlite = struct {
         if (c.SQLITE_ROW == step_result) {
             return error.TooManyRows;
         } else if (c.SQLITE_DONE != step_result) {
-            logErr("Step in insertOrIgnoreUser failed: {s}", .{c.sqlite3_errmsg(self.db)});
+            logErr("Step in selectWebhook failed: {s}", .{c.sqlite3_errmsg(self.db)});
             return error.StepQueryFailure;
         }
 
