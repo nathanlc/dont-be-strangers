@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const http = @import("http.zig");
 const model = @import("model.zig");
 const github = @import("github.zig");
 const slack = @import("slack.zig");
@@ -261,7 +262,7 @@ test Body {
 
 pub const Response = struct {
     body: Body,
-    content_type: Mime,
+    content_type: http.Mime,
     status: std.http.Status = .ok,
 
     pub fn log(self: *const Response) void {
@@ -489,7 +490,7 @@ const EndpointPublicResource = struct {
 fn respondHealth(_: *Request) !Response {
     return Response{
         .body = Body{ .comp = "Hello!" },
-        .content_type = Mime.text_plain,
+        .content_type = http.Mime.text_plain,
     };
 }
 
@@ -504,7 +505,7 @@ fn respondGithubLoginParams(request: *Request) !Response {
 
     return Response{
         .body = Body{ .alloc = body },
-        .content_type = Mime.application_json,
+        .content_type = http.Mime.application_json,
     };
 }
 
@@ -542,7 +543,7 @@ test respondGithubLoginParams {
 
             const body_str = response.body.bodyStr();
             try std.testing.expectEqual(87, body_str.len);
-            try std.testing.expectEqual(Mime.application_json, response.content_type);
+            try std.testing.expectEqual(http.Mime.application_json, response.content_type);
             try std.testing.expectEqual(.ok, response.status);
         }
     }).apply, .{&app});
@@ -569,7 +570,7 @@ fn respondGithubCallback(request: *Request) !Response {
     _ = query.get("code") orelse {
         return Response{
             .body = Body{ .comp = "Missing expected query param `code`" },
-            .content_type = Mime.text_plain,
+            .content_type = http.Mime.text_plain,
             .status = .bad_request,
         };
     };
@@ -603,11 +604,11 @@ fn handleFetchedToken(request: *Request, parsed_token_or_error: anyerror!std.jso
 
         return Response{
             .body = .{ .alloc = body },
-            .content_type = Mime.application_json,
+            .content_type = http.Mime.application_json,
         };
     } else |err| {
         const err_body = Body{ .comp = "{\"error\":\"Failed to fetch token.\"}" };
-        const content_type = Mime.application_json;
+        const content_type = http.Mime.application_json;
         switch (err) {
             github.FetchTokenError.Unauthorized => return Response{
                 .body = err_body,
@@ -636,7 +637,7 @@ fn respondGithubAccessToken(request: *Request) !Response {
     const code = query.get("code") orelse {
         return Response{
             .body = Body{ .comp = "Missing expected query param `code`" },
-            .content_type = Mime.text_plain,
+            .content_type = http.Mime.text_plain,
             .status = .bad_request,
         };
     };
@@ -644,7 +645,7 @@ fn respondGithubAccessToken(request: *Request) !Response {
     const state = query.get("state") orelse {
         return Response{
             .body = Body{ .comp = "Missing expected query param `state`" },
-            .content_type = Mime.text_plain,
+            .content_type = http.Mime.text_plain,
             .status = .bad_request,
         };
     };
@@ -653,7 +654,7 @@ fn respondGithubAccessToken(request: *Request) !Response {
     if (!state_valid) {
         return Response{
             .body = Body{ .comp = "Invalid state query param" },
-            .content_type = Mime.text_plain,
+            .content_type = http.Mime.text_plain,
             .status = .forbidden,
         };
     }
@@ -670,7 +671,7 @@ fn respondGithubRefreshToken(request: *Request) !Response {
     const refresh_token = query.get("refresh_token") orelse {
         return Response{
             .body = .{ .comp = "Missing expected query param `refresh_token`." },
-            .content_type = Mime.text_plain,
+            .content_type = http.Mime.text_plain,
             .status = .bad_request,
         };
     };
@@ -796,7 +797,7 @@ fn respondApiV0UserContacts(request: *Request) !Response {
 
     return Response{
         .body = Body{ .alloc = body },
-        .content_type = Mime.text_plain,
+        .content_type = http.Mime.text_plain,
     };
 }
 
@@ -833,7 +834,7 @@ fn respondApiV0UserContactsPost(request: *Request) !Response {
 
     return Response{
         .body = Body{ .comp = "" },
-        .content_type = Mime.text_plain,
+        .content_type = http.Mime.text_plain,
         .status = .created,
     };
 }
@@ -863,66 +864,10 @@ fn respondApiV0UserContactsPatch(request: *Request, path_variables: [][]const u8
 
         break :blk Response{
             .body = Body{ .alloc = body },
-            .content_type = Mime.text_plain,
+            .content_type = http.Mime.text_plain,
         };
     } else respondNotFound(request);
 }
-
-fn eqlU8(str1: []const u8, str2: []const u8) bool {
-    return std.mem.eql(u8, str1, str2);
-}
-
-pub const Mime = enum {
-    text_html,
-    text_javascript,
-    text_css,
-    text_plain,
-    application_json,
-    application_x_www_form_url_encoded,
-    image_x_icon,
-    image_svg,
-    image_png,
-
-    pub fn fromString(file_name: []const u8) !Mime {
-        var iter = std.mem.splitBackwardsScalar(u8, file_name, '.');
-        const extension = iter.first();
-
-        if (eqlU8("html", extension)) {
-            return Mime.text_html;
-        } else if (eqlU8("js", extension)) {
-            return Mime.text_javascript;
-        } else if (eqlU8("css", extension)) {
-            return Mime.text_css;
-        } else if (eqlU8("txt", extension)) {
-            return Mime.text_plain;
-        } else if (eqlU8("webmanifest", extension) or (eqlU8("json", extension))) {
-            return Mime.application_json;
-        } else if (eqlU8("ico", extension)) {
-            return Mime.image_x_icon;
-        } else if (eqlU8("svg", extension)) {
-            return Mime.image_svg;
-        } else if (eqlU8("png", extension)) {
-            return Mime.image_png;
-        }
-
-        logger.warn("Unexpected extension: {s}\n  for file_name: {s}\nReturning text/plain", .{ extension, file_name });
-        return error.MimeNotFound;
-    }
-
-    pub fn toString(self: Mime) []const u8 {
-        return switch (self) {
-            Mime.text_html => "text/html",
-            Mime.text_javascript => "text/javascript",
-            Mime.text_css => "text/css",
-            Mime.text_plain => "text/plain",
-            Mime.application_json => "application/json",
-            Mime.application_x_www_form_url_encoded => "application/x-www-form-urlencoded",
-            Mime.image_x_icon => "image/x-icon",
-            Mime.image_svg => "image/svg",
-            Mime.image_png => "image/png",
-        };
-    }
-};
 
 fn readPublicFile(path: []const u8) ![]u8 {
     var public_dir = try std.fs.cwd().openDir(PUBLIC_PATH, .{});
@@ -968,7 +913,7 @@ fn respondServeFile(request: *Request) !Response {
 
     return Response{
         .body = Body{ .comp = body },
-        .content_type = Mime.fromString(path) catch Mime.text_plain,
+        .content_type = http.Mime.fromString(path) catch http.Mime.text_plain,
     };
 }
 
@@ -978,7 +923,7 @@ fn respondIndex(_: *Request) !Response {
 
     return Response{
         .body = Body{ .comp = body },
-        .content_type = Mime.fromString(path) catch Mime.text_plain,
+        .content_type = http.Mime.fromString(path) catch http.Mime.text_plain,
     };
 }
 
@@ -994,13 +939,13 @@ fn respondTestingError(_: *Request) !Response {
 // }
 
 test respondTestingError {
-    try testResponse("GET", "/testing/error", "500 WHOOPSIE", Mime.text_plain, .internal_server_error);
+    try testResponse("GET", "/testing/error", "500 WHOOPSIE", http.Mime.text_plain, .internal_server_error);
 }
 
 fn respondUnauthorized(_: *Request) !Response {
     return Response{
         .body = Body{ .comp = "{\"error\":\"Unauthorized\"}" },
-        .content_type = Mime.application_json,
+        .content_type = http.Mime.application_json,
         .status = .unauthorized,
     };
 }
@@ -1008,14 +953,14 @@ fn respondUnauthorized(_: *Request) !Response {
 fn respondOk(_: *Request) !Response {
     return Response{
         .body = Body{ .comp = "200 OK" },
-        .content_type = Mime.text_plain,
+        .content_type = http.Mime.text_plain,
     };
 }
 
 fn respondNotFound(_: *Request) !Response {
     return Response{
         .body = Body{ .comp = "404 NOT FOUND" },
-        .content_type = Mime.text_plain,
+        .content_type = http.Mime.text_plain,
         .status = .not_found,
     };
 }
@@ -1023,7 +968,7 @@ fn respondNotFound(_: *Request) !Response {
 fn respondInternalServerError(_: *Request) !Response {
     return Response{
         .body = Body{ .comp = "500 WHOOPSIE" },
-        .content_type = Mime.text_plain,
+        .content_type = http.Mime.text_plain,
         .status = .internal_server_error,
     };
 }
@@ -1031,12 +976,12 @@ fn respondInternalServerError(_: *Request) !Response {
 fn respondBadRequest(_: *Request) !Response {
     return Response{
         .body = Body{ .comp = "400 Bad request... maybe..." },
-        .content_type = Mime.text_plain,
+        .content_type = http.Mime.text_plain,
         .status = .bad_request,
     };
 }
 
-fn testResponse(comptime method: []const u8, comptime path: []const u8, expected_body: []const u8, expected_mime: Mime, expected_status: std.http.Status) !void {
+fn testResponse(comptime method: []const u8, comptime path: []const u8, expected_body: []const u8, expected_mime: http.Mime, expected_status: std.http.Status) !void {
     const allocator = std.testing.allocator;
 
     try model.Sqlite.setupTest();
@@ -1052,7 +997,7 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
     const port = 3010;
 
     const server_thread = try std.Thread.spawn(.{}, (struct {
-        fn apply(app_ptr: *App, e_body: []const u8, e_mime: Mime, e_status: std.http.Status) !void {
+        fn apply(app_ptr: *App, e_body: []const u8, e_mime: http.Mime, e_status: std.http.Status) !void {
             const address = try std.net.Address.resolveIp(ip, port);
             var net_server = try address.listen(.{ .reuse_address = true });
             defer net_server.deinit();
@@ -1090,15 +1035,15 @@ fn testResponse(comptime method: []const u8, comptime path: []const u8, expected
 }
 
 test respondHealth {
-    try testResponse("GET", "/health", "Hello!", Mime.text_plain, .ok);
+    try testResponse("GET", "/health", "Hello!", http.Mime.text_plain, .ok);
 }
 
 test respondServeFile {
-    try testResponse("GET", "/test.txt", "test\n", Mime.text_plain, .ok);
+    try testResponse("GET", "/test.txt", "test\n", http.Mime.text_plain, .ok);
 }
 
 test respondNotFound {
-    try testResponse("GET", "/not_existing_path", "404 NOT FOUND", Mime.text_plain, .not_found);
+    try testResponse("GET", "/not_existing_path", "404 NOT FOUND", http.Mime.text_plain, .not_found);
 }
 
 const endpointNotFound = EndpointWithoutPathVariables{

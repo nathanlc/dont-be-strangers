@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const web = @import("web.zig");
+const http = @import("http.zig");
 const tracy = @import("tracy.zig");
 
 const TOKEN_URL = "https://github.com/login/oauth/access_token";
@@ -80,10 +80,10 @@ pub fn fetchToken(alloc: std.mem.Allocator, api_credentials: ApiCredentials, pay
     defer alloc.free(body);
     request.headers.connection = .omit;
     request.headers.content_type = .{
-        .override = web.Mime.application_json.toString(),
+        .override = http.Mime.application_json.toString(),
     };
     request.extra_headers = &.{
-        .{ .name = "Accept", .value = web.Mime.application_json.toString() },
+        .{ .name = "Accept", .value = http.Mime.application_json.toString() },
     };
     request.transfer_encoding = .{ .content_length = body.len };
 
@@ -136,11 +136,11 @@ pub fn fetchUser(alloc: std.mem.Allocator, access_token: []const u8) !std.json.P
     defer alloc.free(auth_header);
     request.headers.connection = .omit;
     // request.headers.content_type = .{
-    //     .override = web.Mime.application_json.toString(),
+    //     .override = http.Mime.application_json.toString(),
     // };
     request.headers.authorization = .{ .override = auth_header };
     request.extra_headers = &.{
-        .{ .name = "Accept", .value = web.Mime.application_json.toString() },
+        .{ .name = "Accept", .value = http.Mime.application_json.toString() },
         .{ .name = "X-GitHub-Api-Version", .value = "2022-11-28" },
     };
 

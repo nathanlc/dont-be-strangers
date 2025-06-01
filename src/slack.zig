@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const web = @import("web.zig");
+const http = @import("http.zig");
 
 const logger = std.log.scoped(.slack);
 
@@ -22,7 +22,7 @@ pub fn sendMessage(alloc: std.mem.Allocator, url: []const u8, message: []const u
     defer alloc.free(body);
     request.headers.connection = .omit;
     request.headers.content_type = .{
-        .override = web.Mime.application_json.toString(),
+        .override = http.Mime.application_json.toString(),
     };
     request.transfer_encoding = .{ .content_length = body.len };
 
