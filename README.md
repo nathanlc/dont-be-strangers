@@ -4,9 +4,10 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
-- Add notifications / reminders.
-- Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.
+- Add timestamps to logs.
+- Do a 0.1.0 release.
 - Refresh token when need be.
+- Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.
 - Make web app so it can be a "mobile" app.
 - Define "authenticated" endpoints (to share authentication logic), middleware?.
 - Tracy figure out callstack empty. No symbols, related to dsymutil macos issue?
