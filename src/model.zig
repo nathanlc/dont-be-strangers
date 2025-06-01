@@ -42,7 +42,9 @@ pub const Sqlite = struct {
     update_contact_stmt: *c.sqlite3_stmt = undefined,
     insert_contact_stmt: *c.sqlite3_stmt = undefined,
     insert_user_stmt: *c.sqlite3_stmt = undefined,
+    select_users_stmt: *c.sqlite3_stmt = undefined,
     select_user_by_external_id_stmt: *c.sqlite3_stmt = undefined,
+    select_webhook_stmt: *c.sqlite3_stmt = undefined,
 
     pub const Env = enum {
         prod,
@@ -125,6 +127,25 @@ pub const Sqlite = struct {
             break :blk stmt.?;
         };
 
+        const select_users_stmt = blk: {
+            var stmt: ?*c.sqlite3_stmt = undefined;
+            const sql =
+                \\ SELECT
+                \\     id,
+                \\     external_id,
+                \\     login,
+                \\     authenticator
+                \\ FROM
+                \\     users
+            ;
+            if (c.SQLITE_OK != c.sqlite3_prepare_v2(db, sql, sql.len + 1, &stmt, null)) {
+                logErr("Failed to create select_users_stmt statement {s}: {s}", .{sql, c.sqlite3_errmsg(db)});
+                return error.CreateStmtFailure;
+            }
+            break :blk stmt.?;
+        };
+
+
         const select_user_by_external_id_stmt = blk: {
             var stmt: ?*c.sqlite3_stmt = undefined;
             const sql =
@@ -139,7 +160,27 @@ pub const Sqlite = struct {
                 \\     AND authenticator = ?2
             ;
             if (c.SQLITE_OK != c.sqlite3_prepare_v2(db, sql, sql.len + 1, &stmt, null)) {
-                logErr("Failed to create select_users_stmt statement {s}: {s}", .{sql, c.sqlite3_errmsg(db)});
+                logErr("Failed to create select_user_by_external_id_stmt statement {s}: {s}", .{sql, c.sqlite3_errmsg(db)});
+                return error.CreateStmtFailure;
+            }
+            break :blk stmt.?;
+        };
+
+        const select_webhook_stmt = blk: {
+            var stmt: ?*c.sqlite3_stmt = undefined;
+            const sql =
+                \\ SELECT
+                \\     id,
+                \\     user_id,
+                \\     url,
+                \\     hook_for
+                \\ FROM
+                \\     webhooks
+                \\ WHERE user_id = ?1
+                \\     AND hook_for = ?2
+            ;
+            if (c.SQLITE_OK != c.sqlite3_prepare_v2(db, sql, sql.len + 1, &stmt, null)) {
+                logErr("Failed to create select_webhook_stmt statement {s}: {s}", .{sql, c.sqlite3_errmsg(db)});
                 return error.CreateStmtFailure;
             }
             break :blk stmt.?;
@@ -153,7 +194,9 @@ pub const Sqlite = struct {
             .update_contact_stmt = update_contact_stmt,
             .insert_contact_stmt = insert_contact_stmt,
             .insert_user_stmt = insert_user_stmt,
+            .select_users_stmt = select_users_stmt,
             .select_user_by_external_id_stmt = select_user_by_external_id_stmt,
+            .select_webhook_stmt = select_webhook_stmt,
         };
     }
 
@@ -173,7 +216,9 @@ pub const Sqlite = struct {
         _ = c.sqlite3_finalize(self.update_contact_stmt);
         _ = c.sqlite3_finalize(self.insert_contact_stmt);
         _ = c.sqlite3_finalize(self.insert_user_stmt);
+        _ = c.sqlite3_finalize(self.select_users_stmt);
         _ = c.sqlite3_finalize(self.select_user_by_external_id_stmt);
+        _ = c.sqlite3_finalize(self.select_webhook_stmt);
         _ = c.sqlite3_close(self.db);
     }
 
@@ -218,6 +263,16 @@ pub const Sqlite = struct {
             \\   PRIMARY KEY (id ASC),
             \\   FOREIGN KEY (user_id) REFERENCES users(id)
             \\ );
+            \\
+            \\ CREATE TABLE IF NOT EXISTS webhooks (
+            \\   id INTEGER NOT NULL,
+            \\   user_id INTEGER NOT NULL,
+            \\   url TEXT NOT NULL,
+            \\   hook_for TEXT NOT NULL,
+            \\   PRIMARY KEY (id ASC),
+            \\   FOREIGN KEY (user_id) REFERENCES users(id),
+            \\   UNIQUE (user_id, hook_for)
+            \\ );
         ;
 
         const self = Sqlite{ .db = db_ptr.? };
@@ -240,6 +295,7 @@ pub const Sqlite = struct {
         const sql =
             \\ DROP TABLE IF EXISTS users;
             \\ DROP TABLE IF EXISTS contacts;
+            \\ DROP TABLE IF EXISTS webhooks;
             \\
             \\ CREATE TABLE IF NOT EXISTS users (
             \\   id INTEGER NOT NULL,
@@ -260,10 +316,21 @@ pub const Sqlite = struct {
             \\   FOREIGN KEY (user_id) REFERENCES users(id)
             \\ );
             \\
+            \\ CREATE TABLE IF NOT EXISTS webhooks (
+            \\   id INTEGER NOT NULL,
+            \\   user_id INTEGER NOT NULL,
+            \\   url TEXT NOT NULL,
+            \\   hook_for TEXT NOT NULL,
+            \\   PRIMARY KEY (id ASC),
+            \\   FOREIGN KEY (user_id) REFERENCES users(id),
+            \\   UNIQUE (user_id, hook_for)
+            \\ );
+            \\
             \\ INSERT INTO users
             \\     (external_id, login, authenticator)
             \\ VALUES
-            \\     ('1', 'nathan_dummy', 'github');
+            \\     ('1', 'nathan_dummy', 'github'),
+            \\     ('abc_dummy', 'test_dummy', 'github');
             \\
             \\ WITH user AS (
             \\     SELECT id as user_id FROM users WHERE external_id = '1' AND authenticator = 'github'
@@ -317,7 +384,7 @@ pub const Sqlite = struct {
             try contact_list.put(contact.id.?, contact);
         }
 
-        if (step_result != c.SQLITE_DONE) {
+        if (c.SQLITE_DONE != step_result) {
             logErr("Step in selectContactsByUser failed: {s}", .{c.sqlite3_errmsg(self.db)});
             return error.StepQueryFailure;
         }
@@ -430,6 +497,58 @@ pub const Sqlite = struct {
         return;
     }
 
+    pub fn selectUsers(self: Sqlite, alloc: std.mem.Allocator) ![]User {
+        defer {
+            _ = c.sqlite3_reset(self.select_users_stmt);
+        }
+
+        var user_list = std.ArrayList(User).init(alloc);
+        errdefer {
+            for (user_list.items) |user| {
+                user.deinit();
+            }
+            user_list.deinit();
+        }
+
+        var step_result = c.sqlite3_step(self.select_users_stmt);
+        while (step_result == c.SQLITE_ROW) : (step_result = c.sqlite3_step(self.select_users_stmt)) {
+            const id = c.sqlite3_column_int64(self.select_users_stmt, 0);
+            const external_id_row = c.sqlite3_column_text(self.select_users_stmt, 1);
+            const external_id_len: usize = @intCast(c.sqlite3_column_bytes(self.select_users_stmt, 1));
+            const login = c.sqlite3_column_text(self.select_users_stmt, 2);
+            const login_len: usize = @intCast(c.sqlite3_column_bytes(self.select_users_stmt, 2));
+            const authenticator_row = c.sqlite3_column_text(self.select_users_stmt, 3);
+            const authenticator_row_len: usize = @intCast(c.sqlite3_column_bytes(self.select_users_stmt, 3));
+
+            const login_buf = try alloc.alloc(u8, login_len);
+            errdefer alloc.free(login_buf);
+            @memcpy(login_buf, login[0..login_len]);
+
+            const external_id_buf = try alloc.alloc(u8, external_id_len);
+            errdefer alloc.free(external_id_buf);
+            @memcpy(external_id_buf, external_id_row[0..external_id_len]);
+
+            // sqlite3_column_bytes does not count the null termination in its length.
+            const authenticator_enum = try Authenticator.fromStringZ(authenticator_row, authenticator_row_len + 1);
+
+            var user = User.init(alloc);
+            errdefer user.deinit();
+            user.id = @as(i64, id);
+            user.external_id = external_id_buf;
+            user.login = login_buf;
+            user.authenticator = authenticator_enum;
+
+            try user_list.append(user);
+        }
+
+        if (c.SQLITE_DONE != step_result) {
+            logErr("Step in selectUsers failed: {s}", .{c.sqlite3_errmsg(self.db)});
+            return error.StepQueryFailure;
+        }
+
+        return user_list.toOwnedSlice();
+    }
+
     pub fn selectUserByExternalId(self: Sqlite, alloc: std.mem.Allocator, external_id: []const u8, authenticator: Authenticator) !User {
         defer {
             _ = c.sqlite3_reset(self.select_user_by_external_id_stmt);
@@ -489,6 +608,63 @@ pub const Sqlite = struct {
 
         return user;
     }
+
+    pub fn selectWebhook(self: Sqlite, alloc: std.mem.Allocator, user_id: i64, hook_for: HookFor) !?Webhook {
+        defer {
+            _ = c.sqlite3_reset(self.select_webhook_stmt);
+        }
+
+        if (c.SQLITE_OK != c.sqlite3_bind_int(self.select_webhook_stmt, 1, @intCast(user_id))) {
+            logErr("Failed to bind user_id: {s}", .{c.sqlite3_errmsg(self.db)});
+            return error.BindTextFailure;
+        }
+
+        const hook_for_c = hook_for.toStringZ();
+        if (c.SQLITE_OK != c.sqlite3_bind_text(self.select_webhook_stmt, 2, hook_for_c, @intCast(hook_for_c.len), c.SQLITE_STATIC)) {
+            logErr("Failed to bind hook_for: {s}", .{c.sqlite3_errmsg(self.db)});
+            return error.BindTextFailure;
+        }
+
+        var step_result = c.sqlite3_step(self.select_webhook_stmt);
+        if (c.SQLITE_DONE == step_result) {
+            return null;
+        }
+
+        const id = c.sqlite3_column_int64(self.select_webhook_stmt, 0);
+        const user_id_row = c.sqlite3_column_int64(self.select_webhook_stmt, 1);
+        const url = c.sqlite3_column_text(self.select_webhook_stmt, 2);
+        const url_len: usize = @intCast(c.sqlite3_column_bytes(self.select_webhook_stmt, 2));
+        const hook_for_row = c.sqlite3_column_text(self.select_webhook_stmt, 3);
+        const hook_for_row_len: usize = @intCast(c.sqlite3_column_bytes(self.select_webhook_stmt, 3));
+
+        const url_buf = try alloc.alloc(u8, url_len);
+        errdefer alloc.free(url_buf);
+        @memcpy(url_buf, url[0..url_len]);
+
+        const hook_for_buf = try alloc.alloc(u8, hook_for_row_len);
+        errdefer alloc.free(hook_for_buf);
+        @memcpy(hook_for_buf, hook_for_row[0..hook_for_row_len]);
+
+        // sqlite3_column_bytes does not count the null termination in its length.
+        const hook_for_enum = try HookFor.fromStringZ(hook_for_row, hook_for_row_len + 1);
+
+        var webhook = Webhook.init(alloc);
+        errdefer webhook.deinit();
+        webhook.id = @as(i64, id);
+        webhook.user_id = user_id_row;
+        webhook.url = url_buf;
+        webhook.hook_for = hook_for_enum;
+
+        step_result = c.sqlite3_step(self.select_webhook_stmt);
+        if (c.SQLITE_ROW == step_result) {
+            return error.TooManyRows;
+        } else if (c.SQLITE_DONE != step_result) {
+            logErr("Step in insertOrIgnoreUser failed: {s}", .{c.sqlite3_errmsg(self.db)});
+            return error.StepQueryFailure;
+        }
+
+        return webhook;
+    }
 };
 
 test Sqlite {
@@ -503,6 +679,8 @@ test Sqlite {
     defer sqlite.deinit();
 
     {
+        try Sqlite.setupTest();
+
         const first_user = try sqlite.selectUserByExternalId(alloc, "1", Authenticator.github);
         defer first_user.deinit();
         var contact_list = try sqlite.selectContactsByUser(alloc, first_user.id.?);
@@ -537,6 +715,8 @@ test Sqlite {
     }
 
     {
+        try Sqlite.setupTest();
+
         const external_id = "fake_external_id";
         const login = "fake_login";
         const authenticator = Authenticator.github;
@@ -548,6 +728,28 @@ test Sqlite {
         try expectEqualStrings(external_id, user.external_id);
         try expectEqualStrings(login, user.login);
         try expectEqual(authenticator, user.authenticator);
+    }
+
+    {
+        try Sqlite.setupTest();
+
+        const user_id = 999999;
+        const hook_for = HookFor.slack_notification;
+        const maybe_webhook = try sqlite.selectWebhook(alloc, user_id, hook_for);
+        try expect(null == maybe_webhook);
+    }
+
+    {
+        try Sqlite.setupTest();
+
+        const user_list = try sqlite.selectUsers(alloc);
+        defer {
+            for (user_list) |user| {
+                user.deinit();
+            }
+            alloc.free(user_list);
+        }
+        try expectEqual(2, user_list.len);
     }
 }
 
@@ -800,5 +1002,56 @@ pub const ContactList = struct {
                 try writer.print("{s}\n", .{entry.value_ptr.*});
             }
         }
+    }
+};
+
+pub const HookFor = enum {
+    slack_notification,
+
+    pub fn fromString(str: []const u8) !HookFor {
+        if (std.mem.eql(u8, "slack_notification", str)) {
+            return .slack_notification;
+        }
+
+        logErr("Failed to parse str '{s}' to HookFor", .{str});
+        return error.InvalidHookFor;
+    }
+
+    pub fn fromStringZ(str: [*:0]const u8, str_len: usize) !HookFor {
+        return HookFor.fromString(str[0..(str_len - 1)]);
+    }
+
+    pub fn toString(self: HookFor) []const u8 {
+        return switch (self) {
+            .slack_notification => "slack_notification",
+        };
+    }
+
+    pub fn toStringZ(self: HookFor) [:0]const u8 {
+        return switch (self) {
+            .slack_notification => "slack_notification",
+        };
+    }
+};
+
+pub const Webhook = struct {
+    alloc: std.mem.Allocator,
+    id: ?i64,
+    user_id: i64,
+    url: []const u8,
+    hook_for: HookFor,
+
+    pub fn init(alloc: std.mem.Allocator) Webhook {
+        return .{
+            .alloc = alloc,
+            .id = undefined,
+            .user_id = undefined,
+            .url = undefined,
+            .hook_for = undefined,
+        };
+    }
+
+    pub fn deinit(self: Webhook) void {
+        self.alloc.free(self.url);
     }
 };

@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const model = @import("model.zig");
 const github = @import("github.zig");
+const slack = @import("slack.zig");
 const tracy = @import("tracy.zig");
 const assert = std.debug.assert;
 
@@ -11,6 +12,8 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3000;
 const TIDY_PERIOD = 1 * std.time.s_per_hour;
 // const TIDY_PERIOD = 1 * std.time.s_per_min;
+const NOTIFY_PERIOD = 1 * std.time.s_per_day;
+// const NOTIFY_PERIOD = 1 * std.time.s_per_min;
 
 const logger = std.log.scoped(.web);
 
@@ -507,6 +510,8 @@ fn respondGithubLoginParams(request: *Request) !Response {
 
 test respondGithubLoginParams {
     const allocator = std.testing.allocator;
+
+    try model.Sqlite.setupTest();
 
     var app = try App.init(.{
         .alloc = allocator,
@@ -1033,6 +1038,8 @@ fn respondBadRequest(_: *Request) !Response {
 
 fn testResponse(comptime method: []const u8, comptime path: []const u8, expected_body: []const u8, expected_mime: Mime, expected_status: std.http.Status) !void {
     const allocator = std.testing.allocator;
+
+    try model.Sqlite.setupTest();
 
     var app = try App.init(.{
         .alloc = allocator,
@@ -1566,25 +1573,6 @@ const App = struct {
     }
 };
 
-pub fn tidyServer(app_ptr: *App) !void {
-    var tidied_at = std.time.timestamp();
-
-    while (true) {
-        const now = std.time.timestamp();
-        const seconds_since_previous_tidy = now - tidied_at;
-        if (seconds_since_previous_tidy > TIDY_PERIOD) {
-            logger.info("Tidying server...", .{});
-            const removed_token_count = app_ptr.token_cache.removeExpired();
-            logger.info("  Removed {d} expired tokens from cache.", .{removed_token_count});
-            const removed_nonce_count = app_ptr.nonce_map.removeExpired();
-            logger.info("  Removed {d} expired nonces.", .{removed_nonce_count});
-
-            tidied_at = now;
-        }
-        std.posix.nanosleep(60, 0);
-    }
-}
-
 fn validateEnvVar(env_map: std.process.EnvMap, var_name: []const u8, missing_error: anyerror, empty_error: anyerror) ![]const u8 {
     if (env_map.get(var_name)) |var_value| {
         return if (std.mem.eql(u8, "", var_value)) empty_error else var_value;
@@ -1593,14 +1581,68 @@ fn validateEnvVar(env_map: std.process.EnvMap, var_name: []const u8, missing_err
     }
 }
 
+pub fn scheduledJobs(app: *App, alloc: std.mem.Allocator) !void {
+    var tidied_at = std.time.timestamp();
+    var notified_at = std.time.timestamp();
+
+    while (true) {
+        const now = std.time.timestamp();
+
+        const seconds_since_previous_tidy = now - tidied_at;
+        if (seconds_since_previous_tidy > TIDY_PERIOD) {
+            logger.info("Tidying server...", .{});
+            const removed_token_count = app.token_cache.removeExpired();
+            logger.info("  Removed {d} expired tokens from cache.", .{removed_token_count});
+            const removed_nonce_count = app.nonce_map.removeExpired();
+            logger.info("  Removed {d} expired nonces.", .{removed_nonce_count});
+
+            tidied_at = now;
+        }
+
+        const seconds_since_previous_notified = now - notified_at;
+        if (seconds_since_previous_notified > NOTIFY_PERIOD) {
+            logger.info("Checking for notifications...", .{});
+
+            const users = try app.sqlite.selectUsers(alloc);
+            defer {
+                for (users) |user| {
+                    user.deinit();
+                }
+                alloc.free(users);
+            }
+            const tomorrow = now + std.time.s_per_day;
+            for (users) |user| {
+                // Check if user can receive notifications or else skip.
+                const webhook = try app.sqlite.selectWebhook(alloc, user.id.?, model.HookFor.slack_notification) orelse continue;
+
+                var contact_list = try app.sqlite.selectContactsByUser(alloc, user.id.?);
+                defer contact_list.deinit();
+                var contact_iter = contact_list.iterator();
+                var due_message = std.ArrayList(u8).init(alloc);
+                defer due_message.deinit();
+                var writer = due_message.writer();
+                while (contact_iter.next()) |entry| {
+                    if (tomorrow >= entry.value_ptr.due_at) {
+                        if (0 == due_message.items.len) {
+                            try writer.print("Contacts due:", .{});
+                        }
+                        try writer.print("\n  {s}", .{entry.value_ptr.full_name});
+                    }
+                }
+                logger.info("Posting message {s} to webhook {s}", .{due_message.items, webhook.url});
+                try slack.sendMessage(alloc, webhook.url, due_message.items);
+            }
+
+            notified_at = now;
+        }
+        std.posix.nanosleep(60, 0);
+    }
+}
 
 pub fn runServer() !void {
     var general_purpose_allocator = std.heap.DebugAllocator(.{}).init;
     // const allocator = std.heap.page_allocator
     const allocator = general_purpose_allocator.allocator();
-
-    // TODO: This should be part of sqlite, there should be only 1 method "setup" that depending on the Sqlite.Env sets up the appropriate DB.
-    try model.setupSqlite();
 
     // Ensure Github API credentials are present in env variables.
     var env_map = try std.process.getEnvMap(allocator);
@@ -1613,6 +1655,9 @@ pub fn runServer() !void {
         .secret = github_secret,
     };
 
+    // TODO: This should be part of sqlite, there should be only 1 method "setup" that depending on the Sqlite.Env sets up the appropriate DB.
+    try model.setupSqlite();
+
     var app = try App.init(.{
         .alloc = allocator,
         .env = App.Env.prod,
@@ -1624,7 +1669,7 @@ pub fn runServer() !void {
     var net_server = try address.listen(.{ .reuse_address = true });
     defer net_server.deinit();
 
-    const tidy_thread = try std.Thread.spawn(.{}, tidyServer, .{&app});
+    const scheduled_jobs_thread = try std.Thread.spawn(.{}, scheduledJobs, .{&app, allocator});
 
     var server_buffer: [DEFAULT_URL_LENGTH]u8 = undefined;
     while (true) {
@@ -1643,5 +1688,5 @@ pub fn runServer() !void {
         // if (std.mem.eql(u8, "Stop server", response.body.bodyStr())) break;
     }
 
-    tidy_thread.join();
+    scheduled_jobs_thread.join();
 }

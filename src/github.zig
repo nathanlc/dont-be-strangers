@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const web = @import("web.zig");
-const config = if (builtin.is_test) @import("test.zig").Config{} else @import("config");
 const tracy = @import("tracy.zig");
 
 const TOKEN_URL = "https://github.com/login/oauth/access_token";
