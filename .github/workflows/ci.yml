@@ -10,7 +10,7 @@ jobs:
     name: Check build & Test
     strategy:
       fail-fast: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GITHUB_CLIENT_ID: test_gh_client_id
       GITHUB_SECRET: test_github_secret
@@ -25,4 +25,4 @@ jobs:
         run: zig build
 
       - name: Test
-        run: zig test -I lib/c/sqlite -lsqlite3 src/test.zig
+        run: zig build test --summary all
