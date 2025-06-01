@@ -35,6 +35,8 @@ zig build -Dno-bin -fincremental --watch
 
 ### Run tests automatically
 ```shell
+ls src/* | entr -cc -s 'zig build test --summary all'
+# OR
 ls src/* | entr -cc -s 'zig test -I lib/c/sqlite -lsqlite3 src/test.zig'
 ```
 
