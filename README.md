@@ -72,7 +72,7 @@ cmake --build profiler/build --config Release -- parallel
 ```
 - Start the tracy client (dont-be-strangers server):
 ```shell
-zig build -Dgithub-client-id="${GITHUB_CLIENT_ID}" -Dgithub-client-secret="${GITHUB_CLIENT_SECRET}" -Doptimize=ReleaseSafe -Dtracy=/path/to/tracy/ run -- server
+zig build -Doptimize=ReleaseSafe -Dtracy=/path/to/tracy/ run -- server
 ```
 
 ## Old code reference
