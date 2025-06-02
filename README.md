@@ -27,6 +27,16 @@ Service to get reminded to stay in touch with people.
 ## External dependencies
 - Github application setup for OAuth authentication via github: https://github.com/settings/apps/dont-be-strangers
 
+## Build a "release" bin
+For the current platform:
+```
+zig build -Doptimize=ReleaseSafe
+```
+For a different platform (e.g. arm-linux):
+```
+zig build -Doptimize=ReleaseSafe -Dtarget=arm-linux
+```
+
 ## Development
 ### Run build with file system watching
 The env variables GITHUB_CLIENT_ID and GITHUB_SECRET must be set.

@@ -1,7 +1,7 @@
 .{
     .name = .dont_be_strangers,
     .fingerprint = 0xe2a9b44d32c474c1,
-    .version = "0.0.0",
+    .version = "0.1.0",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{},
     .paths = .{

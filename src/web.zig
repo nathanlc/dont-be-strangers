@@ -1586,8 +1586,11 @@ pub fn scheduledJobs(app: *App, alloc: std.mem.Allocator) !void {
 
 pub fn runServer() !void {
     var general_purpose_allocator = std.heap.DebugAllocator(.{}).init;
-    // const allocator = std.heap.page_allocator
-    const allocator = general_purpose_allocator.allocator();
+    const allocator = if (.Debug == builtin.mode) blk: {
+        break :blk general_purpose_allocator.allocator();
+    } else blk: {
+        break :blk std.heap.page_allocator;
+    };
 
     // Ensure Github API credentials are present in env variables.
     var env_map = try std.process.getEnvMap(allocator);
