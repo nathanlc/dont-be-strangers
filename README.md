@@ -4,8 +4,8 @@ Service to get reminded to stay in touch with people.
 (This is just an excuse to learn zig.)
 
 ## TODO
-- Add timestamps to logs.
 - Do a 0.1.0 release.
+- Add timestamps to logs.
 - Refresh token when need be.
 - Test the removeExpired methods. App should be initiated with a "time machine" so that these can be easily tested.
 - Make web app so it can be a "mobile" app.
